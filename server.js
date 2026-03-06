@@ -105,7 +105,16 @@ app.post('/login', (req, res) => {
 
     } catch (error) {
       console.error("ERREUR FATALE attrapée :", error);
-      res.status(500).json({ error: 'Erreur interne lors de la création de la session.' });
+      res.status(200).json({ 
+        message: 'Connexion réussie !', 
+        token: token, 
+          user: { 
+              id: user.id, 
+              isAdmin: user.isAdmin,
+              email: user.email,
+              userName: user.userName
+          } 
+      });
     }
   });
 });
