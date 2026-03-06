@@ -101,13 +101,9 @@ app.post('/login', (req, res) => {
       );
       
       console.log(`Connexion réussie pour ${user.email}`);
-      res.status(200).json({ message: 'Connexion réussie !', token: token, id: user.id, isAdmin: user.isAdmin });
-
-    } catch (error) {
-      console.error("ERREUR FATALE attrapée :", error);
       res.status(200).json({ 
-        message: 'Connexion réussie !', 
-        token: token, 
+          message: 'Connexion réussie !', 
+          token: token, 
           user: { 
               id: user.id, 
               isAdmin: user.isAdmin,
@@ -115,6 +111,10 @@ app.post('/login', (req, res) => {
               userName: user.userName
           } 
       });
+
+    } catch (error) {
+      console.error("ERREUR FATALE attrapée :", error);
+      res.status(500).json({ error: 'Erreur interne lors de la création de la session.' });
     }
   });
 });
