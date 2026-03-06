@@ -108,7 +108,7 @@ app.post('/login', (req, res) => {
               id: user.id, 
               isAdmin: user.isAdmin,
               email: user.email,
-              userName: user.userName
+              userName: user.username
           } 
       });
 
