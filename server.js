@@ -3,6 +3,7 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+
 const SECRET_KEY = "OPENMINDS_SUPER_SECRET_2026";
 
 const app = express();
@@ -20,7 +21,6 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
-
 const verifyToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -36,9 +36,8 @@ const verifyToken = (req, res, next) => {
     });
 };
 
-// Route de test Ping
 app.get('/', (req, res) => {
-  res.send('L\'API OpenMinds fonctionne et ne crash plus !');
+  res.send('L\'API OpenMinds fonctionne parfaitement !');
 });
 
 // ==========================================
@@ -48,14 +47,14 @@ app.post('/register', async (req, res) => {
   const { email, password , username } = req.body;
 
   if (!email || !password || !username) {
-    return res.status(400).json({ error: 'Username et Email et mot de passe requis !' });
+    return res.status(400).json({ error: 'Username, Email et mot de passe requis !' });
   }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-
     const query = 'INSERT INTO users (email, password, userName, isAdmin) VALUES (?, ?, ?, 0)';
-    db.execute(query, [email, hashedPassword, username], (err, results) => {
+    
+    db.execute(query, [email.trim(), hashedPassword, username], (err, results) => {
       if (err) {
         if (err.code === 'ER_DUP_ENTRY') {
           return res.status(409).json({ error: 'Cet email est déjà utilisé.' });
@@ -70,10 +69,11 @@ app.post('/register', async (req, res) => {
 });
 
 // ==========================================
-// ROUTE 2 : CONNEXION (/login)
+// ROUTE 2 : CONNEXION (/login) ULTRA SÉCURISÉE
 // ==========================================
 app.post('/login', (req, res) => {
-  const { email, password } = req.body;
+  const email = req.body.email ? req.body.email.trim() : '';
+  const password = req.body.password;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email et mot de passe requis !' });
@@ -85,17 +85,28 @@ app.post('/login', (req, res) => {
     if (results.length === 0) {
       return res.status(401).json({ error: 'Identifiants incorrects.' });
     }
-    const user = results[0];
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      return res.status(401).json({ error: 'Identifiants incorrects.' });
-    }
+
+    try {
+      const user = results[0];
+      const match = await bcrypt.compare(password, user.password);
+      
+      if (!match) {
+        return res.status(401).json({ error: 'Identifiants incorrects.' });
+      }
+
       const token = jwt.sign(
           { id: user.id, isAdmin: user.isAdmin },
           SECRET_KEY,
           { expiresIn: '24h' }
       );
-    res.status(200).json({ message: 'Connexion réussie !', token: token, id: user.id, isAdmin: user.isAdmin });
+      
+      console.log(`Connexion réussie pour ${user.email}`);
+      res.status(200).json({ message: 'Connexion réussie !', token: token, id: user.id, isAdmin: user.isAdmin });
+
+    } catch (error) {
+      console.error("ERREUR FATALE attrapée :", error);
+      res.status(500).json({ error: 'Erreur interne lors de la création de la session.' });
+    }
   });
 });
 
