@@ -153,6 +153,42 @@ app.get('/my-formations', verifyToken, (req, res) => {
 
 
 
+// ==========================================
+// ROUTE 4 : RÉCUPÉRER LE CATALOGUE DE FORMATIONS
+// ==========================================
+app.get('/formations', verifyToken, (req, res) => {
+  // On récupère toutes les formations et on cherche la date de la session la plus proche
+  const query = `
+    SELECT 
+        f.id, 
+        f.Titre, 
+        f.Description, 
+        f.isOnline,
+        (SELECT MIN(DateHeure) FROM Session s WHERE s.Id_Formation = f.id) as DateHeure
+    FROM Formation f
+  `;
+
+  db.execute(query, [], (err, results) => {
+    if (err) {
+      console.error("Erreur SQL Catalogue :", err);
+      return res.status(500).json({ error: 'Erreur lors de la récupération du catalogue.' });
+    }
+    res.status(200).json(results);
+  });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
