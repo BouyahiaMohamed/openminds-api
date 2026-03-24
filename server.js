@@ -119,6 +119,44 @@ app.post('/login', (req, res) => {
   });
 });
 
+
+// ==========================================
+// ROUTE 3 : RÉCUPÉRER LES FORMATIONS DE L'UTILISATEUR
+// ==========================================
+app.get('/my-formations', verifyToken, (req, res) => {
+  const userId = req.id; // L'ID vient du token décodé par verifyToken
+
+  // On fait une jointure (JOIN) entre Participe, Formation et Session
+  const query = `
+    SELECT 
+        F.id AS id_formation, 
+        F.Titre, 
+        S.DateHeure, 
+        S.Duree, 
+        S.Statut, 
+        P.Progression
+    FROM Participe P
+    JOIN Formation F ON P.Id_Formation = F.id
+    LEFT JOIN Session S ON P.Id_Session = S.id
+    WHERE P.Id_User = ?
+    ORDER BY S.DateHeure ASC
+  `;
+
+  db.execute(query, [userId], (err, results) => {
+    if (err) {
+      console.error("Erreur SQL :", err);
+      return res.status(500).json({ error: 'Erreur lors de la récupération des formations.' });
+    }
+    res.status(200).json(results);
+  });
+});
+
+
+
+
+
+
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`API en cours d'exécution sur le port ${PORT}`);
