@@ -219,6 +219,32 @@ app.delete('/formations/:id/like', verifyToken, (req, res) => {
     });
 });
 
+// RÉCUPÉRER LES FORMATIONS LIKÉES (Pour le Dashboard)
+app.get('/my-favorites', verifyToken, (req, res) => {
+    const userId = req.id;
+
+    const query = `
+        SELECT 
+            F.id, 
+            F.Titre, 
+            F.Description, 
+            F.isOnline,
+            (SELECT MIN(DateHeure) FROM Session s WHERE s.Id_Formation = F.id) as DateHeure
+        FROM Like_ L
+        JOIN Formation F ON L.Id_Formation = F.id
+        WHERE L.Id_User = ?
+    `;
+
+    db.execute(query, [userId], (err, results) => {
+        if (err) return res.status(500).json({ error: 'Erreur favoris' });
+        res.status(200).json(results);
+    });
+});
+
+
+
+
+
 
 
 
