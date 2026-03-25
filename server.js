@@ -9,6 +9,7 @@ const SECRET_KEY = "OPENMINDS_SUPER_SECRET_2026";
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use('/badges', express.static('public/badges'));
 
 const db = mysql.createPool({
   host: 'db',
