@@ -178,39 +178,49 @@ app.get('/formations', verifyToken, (req, res) => {
 });
 
 
-app.get('/likes', verifyToken, async (req, res) => {
-    try {
-        const userId = req.user.id; // Récupéré depuis le token JWT
-        // Requête sur ta table Like_
-        const [likes] = await db.query('SELECT Id_Formation FROM Like_ WHERE Id_User = ?', [userId]);
-        res.json(likes); // Renvoie un tableau : [{ Id_Formation: 1 }, { Id_Formation: 4 }]
-    } catch (error) {
-        res.status(500).json({ message: "Erreur serveur" });
-    }
+app.get('/likes', verifyToken, (req, res) => {
+    const userId = req.id; // Correction ici : req.id au lieu de req.user.id
+    
+    const query = 'SELECT Id_Formation FROM Like_ WHERE Id_User = ?';
+    db.execute(query, [userId], (err, results) => {
+        if (err) {
+            console.error("Erreur GET likes:", err);
+            return res.status(500).json({ error: "Erreur serveur" });
+        }
+        res.json(results); 
+    });
 });
 
+app.post('/formations/:id/like', verifyToken, (req, res) => {
+    const userId = req.id; // Correction ici
+    const formationId = req.params.id;
 
-app.post('/formations/:id/like', verifyToken, async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const formationId = req.params.id;
-        await db.query('INSERT IGNORE INTO Like_ (Id_User, Id_Formation) VALUES (?, ?)', [userId, formationId]);
+    const query = 'INSERT IGNORE INTO Like_ (Id_User, Id_Formation) VALUES (?, ?)';
+    db.execute(query, [userId, formationId], (err, results) => {
+        if (err) {
+            console.error("Erreur POST like:", err);
+            return res.status(500).json({ error: "Erreur serveur" });
+        }
         res.status(200).json({ message: "Ajouté aux favoris" });
-    } catch (error) {
-        res.status(500).json({ message: "Erreur serveur" });
-    }
+    });
 });
 
-app.delete('/formations/:id/like', verifyToken, async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const formationId = req.params.id;
-        await db.query('DELETE FROM Like_ WHERE Id_User = ? AND Id_Formation = ?', [userId, formationId]);
+app.delete('/formations/:id/like', verifyToken, (req, res) => {
+    const userId = req.id; // Correction ici
+    const formationId = req.params.id;
+
+    const query = 'DELETE FROM Like_ WHERE Id_User = ? AND Id_Formation = ?';
+    db.execute(query, [userId, formationId], (err, results) => {
+        if (err) {
+            console.error("Erreur DELETE like:", err);
+            return res.status(500).json({ error: "Erreur serveur" });
+        }
         res.status(200).json({ message: "Retiré des favoris" });
-    } catch (error) {
-        res.status(500).json({ message: "Erreur serveur" });
-    }
+    });
 });
+
+
+
 
 
 
