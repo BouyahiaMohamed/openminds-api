@@ -243,6 +243,64 @@ app.get('/my-favorites', verifyToken, (req, res) => {
 });
 
 
+// Route pour s'inscrire à une formation
+app.post('/formations/:id/enroll', verifyToken, (req, res) => {
+    const userId = req.id; 
+    const formationId = req.params.id;
+
+    // 1. On vérifie si l'utilisateur n'est pas déjà inscrit
+    const checkQuery = "SELECT * FROM Participe WHERE Id_User = ? AND Id_Formation = ?";
+    
+    db.execute(checkQuery, [userId, formationId], (err, results) => {
+        if (err) return res.status(500).json({ error: "Erreur lors de la vérification." });
+        
+        if (results.length > 0) {
+            return res.status(400).json({ message: "Vous êtes déjà inscrit à cette formation !" });
+        }
+
+        // 2. On l'inscrit avec une progression de 0% (Id_Session est NULL par défaut pour le E-learning)
+        const insertQuery = "INSERT INTO Participe (Id_User, Id_Formation, Progression) VALUES (?, ?, 0.00)";
+        
+        db.execute(insertQuery, [userId, formationId], (err, insertResult) => {
+            if (err) return res.status(500).json({ error: "Erreur lors de l'inscription." });
+            res.status(200).json({ message: "Inscription réussie !" });
+        });
+    });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
