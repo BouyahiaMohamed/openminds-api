@@ -346,6 +346,65 @@ app.get('/my-teaching-sessions', verifyToken, (req, res) => {
 });
 
 
+// ==========================================
+// ROUTE : RÉCUPÉRER LES PARTICIPANTS D'UNE SESSION
+// ==========================================
+app.get('/sessions/:id/participants', verifyToken, (req, res) => {
+    const sessionId = req.params.id;
+
+    // On fait une jointure pour récupérer le nom de l'utilisateur en plus de son statut
+    const query = `
+        SELECT U.id AS id_user, U.userName, P.isPresent
+        FROM Participe P
+        JOIN users U ON P.Id_User = U.id
+        WHERE P.Id_Session = ?
+    `;
+
+    db.execute(query, [sessionId], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL Participants :", err);
+            return res.status(500).json({ error: 'Erreur lors de la récupération des participants.' });
+        }
+        res.status(200).json(results);
+    });
+});
+
+
+// ==========================================
+// ROUTE : SAUVEGARDER LES PRÉSENCES D'UNE SESSION
+// ==========================================
+app.post('/sessions/:id/attendance', verifyToken, async (req, res) => {
+    const sessionId = req.params.id;
+    const { attendances } = req.body;
+    // attendances ressemblera à ça : [{ userId: 1, isPresent: 1 }, { userId: 2, isPresent: 0 }, ...]
+
+    if (!attendances || !Array.isArray(attendances)) {
+        return res.status(400).json({ error: 'Données de présence invalides.' });
+    }
+
+    try {
+        const query = 'UPDATE Participe SET isPresent = ? WHERE Id_User = ? AND Id_Session = ?';
+
+        // On crée un tableau de promesses pour exécuter toutes les requêtes d'un coup
+        const updatePromises = attendances.map(record => {
+            return new Promise((resolve, reject) => {
+                db.execute(query, [record.isPresent, record.userId, sessionId], (err, results) => {
+                    if (err) reject(err);
+                    else resolve(results);
+                });
+            });
+        });
+
+        // On attend que toutes les mises à jour soient terminées
+        await Promise.all(updatePromises);
+
+        res.status(200).json({ message: 'Appel validé avec succès !' });
+    } catch (error) {
+        console.error("Erreur SQL lors de la validation des présences :", error);
+        res.status(500).json({ error: 'Erreur lors de la validation de la séance.' });
+    }
+});
+
 
 const PORT = 3000;
 app.listen(PORT, () => {
