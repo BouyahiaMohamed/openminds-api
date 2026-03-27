@@ -277,7 +277,7 @@ app.get('/my-badges', verifyToken, (req, res) => {
 
     const query = `
         SELECT B.id, B.nomBadge, B.URLImage, P.DateObtention
-        FROM Possède P
+        FROM Possede P
         JOIN Badges B ON P.id_Badges = B.id
         WHERE P.id_User = ?
         ORDER BY P.DateObtention DESC
