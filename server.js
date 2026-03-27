@@ -347,23 +347,31 @@ app.get('/my-teaching-sessions', verifyToken, (req, res) => {
 });
 
 // ==========================================
-// ROUTE : RÉCUPÉRER LES SESSIONS D'UN JOUR PRÉCIS
+// ROUTE : RÉCUPÉRER LES SESSIONS D'UN JOUR PRÉCIS (CORRIGÉE)
 // ==========================================
 app.get('/my-teaching-sessions/by-date', verifyToken, (req, res) => {
     const userId = req.id;
-    // On récupère la date depuis l'URL (ex: /by-date?date=2023-10-24)
     const requestedDate = req.query.date;
 
     if (!requestedDate) {
         return res.status(400).json({ error: 'La date est requise (format YYYY-MM-DD).' });
     }
 
-    // On utilise DATE(S.DateHeure) = ? pour filtrer sur le jour exact
+    // On reprend exactement la même logique de jointures que la route qui marche !
     const query = `
-        SELECT S.id_session, S.Titre, S.DateHeure, S.Duree, S.Statut
-        FROM Session S
-        WHERE S.id_Formateur = ? 
-        AND DATE(S.DateHeure) = ?
+        SELECT
+            F.id AS id_formation,
+            F.Titre,
+            S.id AS id_session,
+            S.Statut,
+            S.DateHeure,
+            S.Duree,
+            S.Adresse
+        FROM APourFormateur APF
+                 JOIN Session S ON APF.id_Session = S.id
+                 JOIN Formation F ON S.id_Formation = F.id
+        WHERE APF.id_User = ?
+          AND DATE(S.DateHeure) = ?
         ORDER BY S.DateHeure ASC
     `;
 
