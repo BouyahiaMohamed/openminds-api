@@ -347,7 +347,7 @@ app.get('/my-teaching-sessions', verifyToken, (req, res) => {
 });
 
 // ==========================================
-// ROUTE : RÉCUPÉRER LES DÉTAILS D'UNE FORMATION (+ FORMATEURS)
+// ROUTE : RÉCUPÉRER LES DÉTAILS D'UNE FORMATION (+ FORMATEUR)
 // ==========================================
 app.get('/formations/:id', verifyToken, (req, res) => {
     console.log("🚀 BINGO ! L'API a bien reçu la demande pour l'ID :", req.params.id);
