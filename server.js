@@ -1,3 +1,4 @@
+console.log("CHEMIN DU FICHIER :", __filename);
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
@@ -345,8 +346,39 @@ app.get('/my-teaching-sessions', verifyToken, (req, res) => {
     });
 });
 
+// ==========================================
+// ROUTE : RÉCUPÉRER LES DÉTAILS D'UNE FORMATION (+ FORMATEURS)
+// ==========================================
+app.get('/formations/:id', verifyToken, (req, res) => {
+    console.log("🚀 BINGO ! L'API a bien reçu la demande pour l'ID :", req.params.id);
+    const formationId = req.params.id;
 
+    const query = `
+        SELECT
+            F.id, F.Titre, F.Description, F.isOnline,
+            S.DateHeure, S.Duree, S.Adresse, S.nbPlaces, S.nbPlacesRestantes,
+            (SELECT GROUP_CONCAT(U.userName SEPARATOR ', ')
+             FROM APourFormateur APF
+             JOIN users U ON APF.id_User = U.id
+             WHERE APF.id_Session = S.id) as Formateurs
+        FROM Formation F
+        LEFT JOIN Session S ON S.id_Formation = F.id
+        WHERE F.id = ?
+        LIMIT 1
+    `;
 
+    db.execute(query, [formationId], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL:", err);
+            return res.status(500).json({ error: 'Erreur serveur' });
+        }
+        if (results.length === 0) {
+            console.log("Formation non trouvée en BDD pour l'ID:", formationId);
+            return res.status(404).json({ error: 'Formation introuvable' });
+        }
+        res.status(200).json(results[0]);
+    });
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`API en cours d'exécution sur le port ${PORT}`);
