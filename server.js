@@ -269,51 +269,81 @@ app.post('/formations/:id/enroll', verifyToken, (req, res) => {
 });
 
 
+// ==========================================
+// ROUTE : RÉCUPÉRER LES BADGES DE L'UTILISATEUR
+// ==========================================
+app.get('/my-badges', verifyToken, (req, res) => {
+    const userId = req.id;
 
+    const query = `
+        SELECT B.id, B.nomBadge, B.URLImage, P.DateObtention
+        FROM Possède P
+        JOIN Badges B ON P.id_Badges = B.id
+        WHERE P.id_User = ?
+        ORDER BY P.DateObtention DESC
+    `;
 
+    db.execute(query, [userId], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL Badges :", err);
+            return res.status(500).json({ error: 'Erreur lors de la récupération des badges.' });
+        }
+        res.status(200).json(results);
+    });
+});
 
+// ==========================================
+// ROUTE : RÉCUPÉRER LA PROGRESSION (FORMATIONS EN LIGNE)
+// ==========================================
+app.get('/my-online-progress', verifyToken, (req, res) => {
+    const userId = req.id;
 
+    const query = `
+        SELECT F.id, F.Titre, F.Description, P.Progression
+        FROM Participe P
+        JOIN Formation F ON P.Id_Formation = F.id
+        WHERE P.Id_User = ? AND F.isOnline = 1
+    `;
 
+    db.execute(query, [userId], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL Progression :", err);
+            return res.status(500).json({ error: 'Erreur lors de la récupération des progressions.' });
+        }
+        res.status(200).json(results);
+    });
+});
 
+// ==========================================
+// ROUTE 5 : RÉCUPÉRER LES SESSIONS À VENIR EN TANT QUE FORMATEUR
+// ==========================================
+app.get('/my-teaching-sessions', verifyToken, (req, res) => {
+    const userId = req.id;
 
+    // On relie l'utilisateur à ses sessions, puis on récupère les infos de la formation associée
+    const query = `
+        SELECT 
+            F.id AS id_formation,
+            F.Titre,
+            S.id AS id_session,
+            S.DateHeure,
+            S.Duree,
+            S.Adresse
+        FROM APourFormateur APF
+        JOIN Session S ON APF.id_Session = S.id
+        JOIN Formation F ON S.id_Formation = F.id
+        WHERE APF.id_User = ? AND S.DateHeure >= NOW()
+        ORDER BY S.DateHeure ASC
+    `;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    db.execute(query, [userId], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL Formateur :", err);
+            return res.status(500).json({ error: 'Erreur lors de la récupération de vos sessions en tant que formateur.' });
+        }
+        res.status(200).json(results);
+    });
+});
 
 
 
