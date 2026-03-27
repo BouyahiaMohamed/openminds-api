@@ -326,6 +326,7 @@ app.get('/my-teaching-sessions', verifyToken, (req, res) => {
             F.id AS id_formation,
             F.Titre,
             S.id AS id_session,
+            S.Statut,
             S.DateHeure,
             S.Duree,
             S.Adresse
@@ -340,6 +341,36 @@ app.get('/my-teaching-sessions', verifyToken, (req, res) => {
         if (err) {
             console.error("Erreur SQL Formateur :", err);
             return res.status(500).json({ error: 'Erreur lors de la récupération de vos sessions en tant que formateur.' });
+        }
+        res.status(200).json(results);
+    });
+});
+
+// ==========================================
+// ROUTE : RÉCUPÉRER LES SESSIONS D'UN JOUR PRÉCIS
+// ==========================================
+app.get('/my-teaching-sessions/by-date', verifyToken, (req, res) => {
+    const userId = req.id;
+    // On récupère la date depuis l'URL (ex: /by-date?date=2023-10-24)
+    const requestedDate = req.query.date;
+
+    if (!requestedDate) {
+        return res.status(400).json({ error: 'La date est requise (format YYYY-MM-DD).' });
+    }
+
+    // On utilise DATE(S.DateHeure) = ? pour filtrer sur le jour exact
+    const query = `
+        SELECT S.id_session, S.Titre, S.DateHeure, S.Duree, S.Statut
+        FROM Session S
+        WHERE S.id_Formateur = ? 
+        AND DATE(S.DateHeure) = ?
+        ORDER BY S.DateHeure ASC
+    `;
+
+    db.execute(query, [userId, requestedDate], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL Sessions par date :", err);
+            return res.status(500).json({ error: 'Erreur lors de la récupération des sessions.' });
         }
         res.status(200).json(results);
     });
