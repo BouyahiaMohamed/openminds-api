@@ -194,36 +194,32 @@ app.get('/formations', verifyToken, (req, res) => {
 // ==========================================
 // ROUTE : CRÉER/PROPOSER UNE FORMATION (MODIFIÉE)
 // ==========================================
-app.post('/formations', verifyToken, async (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs } = req.body;
+app.post('/formations', verifyToken, (req, res) => {
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes } = req.body;
     
-    try {
-        // Ajout du statut 'en_attente' automatiquement lors de la création
-        const query = `
-            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut) 
-            VALUES (?, ?, ?, ?, 'en_attente')
-        `;
-        
-        db.execute(query, [Titre, Description, isOnline, Adresse], (err, result) => {
-            if (err) return res.status(500).json({ error: "Erreur lors de la création de la formation." });
+    // 1. On insère la formation avec le statut 'en_attente'
+    const queryForm = `INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut) VALUES (?, ?, ?, ?, 'en_attente')`;
+    
+    db.execute(queryForm, [Titre, Description, isOnline, Adresse], (err, result) => {
+        if (err) return res.status(500).json({ error: "Erreur BDD Formation." });
 
-            const formationId = result.insertId;
+        const formationId = result.insertId;
 
-            if (DateHeure) {
-                const sessionQuery = `
-                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse)
-                    VALUES (?, ?, 90, ?, ?, 'À Venir', ?)
-                `;
-                db.execute(sessionQuery, [formationId, DateHeure, nbPlacesRestantes || 0, nbPlacesRestantes || 0, Adresse], (sessionErr) => {
-                    if (sessionErr) console.error("Erreur création session:", sessionErr);
-                });
-            }
-
-            res.status(201).json({ message: "Proposition de formation envoyée avec succès." });
-        });
-    } catch (error) {
-        res.status(500).json({ error: "Erreur serveur" });
-    }
+        // 2. Si une date est fournie, on crée la session associée
+        if (DateHeure) {
+            // Fix MySQL : on s'assure d'avoir les secondes (YYYY-MM-DD HH:MM:00)
+            const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
+            
+            const querySess = `
+                INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
+                VALUES (?, ?, 90, ?, ?, 'À Venir', ?)
+            `;
+            db.execute(querySess, [formationId, formattedDate, nbPlacesRestantes || 0, nbPlacesRestantes || 0, Adresse], (errS) => {
+                if (errS) console.error("Erreur Session lors de la proposition:", errS);
+            });
+        }
+        res.status(201).json({ message: "Proposition envoyée avec succès !" });
+    });
 });
 
 
@@ -583,7 +579,6 @@ app.delete('/formations/:id/enroll', verifyToken, (req, res) => {
 // ROUTES ADMIN : MODÉRATION DES FORMATIONS
 // ==========================================
 
-// 1. Voir les propositions en attente
 app.get('/admin/formations/pending', verifyToken, (req, res) => {
     if (!req.isAdmin) return res.status(403).json({ error: "Accès refusé." });
 
@@ -595,30 +590,36 @@ app.get('/admin/formations/pending', verifyToken, (req, res) => {
     `;
     
     db.execute(query, [], (err, results) => {
-        if (err) return res.status(500).json({ error: "Erreur serveur" });
+        if (err) {
+            console.error("Erreur SQL Pending:", err);
+            return res.status(500).json({ error: "Erreur serveur" });
+        }
         res.json(results);
     });
 });
 
-// 2. Accepter une proposition
 app.put('/admin/formations/:id/accept', verifyToken, (req, res) => {
     if (!req.isAdmin) return res.status(403).json({ error: "Accès refusé." });
 
-    db.execute("UPDATE Formation SET statut = 'validee' WHERE id = ?", [req.params.id], (err) => {
-        if (err) return res.status(500).json({ error: "Erreur serveur" });
-        res.json({ message: "Formation validée !" });
+    const query = "UPDATE Formation SET statut = 'validee' WHERE id = ?";
+    
+    db.execute(query, [req.params.id], (err) => {
+        if (err) return res.status(500).json({ error: "Erreur lors de la validation." });
+        res.json({ message: "Formation validée et publiée au catalogue !" });
     });
 });
 
-// 3. Rejeter une proposition
 app.delete('/admin/formations/:id/reject', verifyToken, (req, res) => {
     if (!req.isAdmin) return res.status(403).json({ error: "Accès refusé." });
 
-    db.execute("DELETE FROM Session WHERE Id_Formation = ?", [req.params.id], (errS) => {
-        if (errS) return res.status(500).json({ error: "Erreur serveur (Session)" });
+    const formationId = req.params.id;
+
+    // On supprime les sessions d'abord pour éviter les erreurs de clés étrangères
+    db.execute("DELETE FROM Session WHERE Id_Formation = ?", [formationId], (errS) => {
+        if (errS) return res.status(500).json({ error: "Erreur suppression sessions." });
         
-        db.execute("DELETE FROM Formation WHERE id = ?", [req.params.id], (errF) => {
-            if (errF) return res.status(500).json({ error: "Erreur serveur (Formation)" });
+        db.execute("DELETE FROM Formation WHERE id = ?", [formationId], (errF) => {
+            if (errF) return res.status(500).json({ error: "Erreur suppression formation." });
             res.json({ message: "Formation refusée et supprimée." });
         });
     });
