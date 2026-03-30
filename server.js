@@ -132,7 +132,7 @@ app.get('/my-formations', verifyToken, (req, res) => {
         SELECT
             F.id AS id_formation,
             F.Titre,
-            F.isOnline,  /* 👈 LE DÉTAIL QUI CHANGE TOUT EST ICI */
+            F.isOnline,
             S.DateHeure,
             S.Duree,
             S.Statut,
@@ -159,8 +159,7 @@ app.get('/my-formations', verifyToken, (req, res) => {
 // ROUTE 4 : RÉCUPÉRER LE CATALOGUE DE FORMATIONS (Filtre places & dates futures)
 // ==========================================
 app.get('/formations', verifyToken, (req, res) => {
-    // On ne sélectionne QUE le E-learning OU les formations en présentiel
-    // qui ont au moins une session future non complète.
+    // ⚠️ MODIFICATION : On ne sélectionne que les formations validées ('validee')
     const query = `
         SELECT
             f.id,
@@ -173,13 +172,13 @@ app.get('/formations', verifyToken, (req, res) => {
              AND s.DateHeure >= NOW()
              AND s.nbPlacesRestantes > 0) as DateHeureRaw
         FROM Formation f
-        WHERE f.isOnline = 1
+        WHERE f.statut = 'validee' AND (f.isOnline = 1
            OR EXISTS (
                SELECT 1 FROM Session s
                WHERE s.Id_Formation = f.id
                  AND s.DateHeure >= NOW()
                  AND s.nbPlacesRestantes > 0
-           )
+           ))
     `;
 
     db.execute(query, [], (err, results) => {
@@ -191,9 +190,44 @@ app.get('/formations', verifyToken, (req, res) => {
     });
 });
 
+// ==========================================
+// ROUTE : CRÉER/PROPOSER UNE FORMATION (MODIFIÉE)
+// ==========================================
+app.post('/formations', verifyToken, async (req, res) => {
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs } = req.body;
+    
+    try {
+        // Ajout du statut 'en_attente' automatiquement lors de la création
+        const query = `
+            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut) 
+            VALUES (?, ?, ?, ?, 'en_attente')
+        `;
+        
+        db.execute(query, [Titre, Description, isOnline, Adresse], (err, result) => {
+            if (err) return res.status(500).json({ error: "Erreur lors de la création de la formation." });
+
+            const formationId = result.insertId;
+
+            if (DateHeure) {
+                const sessionQuery = `
+                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse)
+                    VALUES (?, ?, 90, ?, ?, 'À Venir', ?)
+                `;
+                db.execute(sessionQuery, [formationId, DateHeure, nbPlacesRestantes || 0, nbPlacesRestantes || 0, Adresse], (sessionErr) => {
+                    if (sessionErr) console.error("Erreur création session:", sessionErr);
+                });
+            }
+
+            res.status(201).json({ message: "Proposition de formation envoyée avec succès." });
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Erreur serveur" });
+    }
+});
+
 
 app.get('/likes', verifyToken, (req, res) => {
-    const userId = req.id; // Correction ici : req.id au lieu de req.user.id
+    const userId = req.id; 
 
     const query = 'SELECT Id_Formation FROM Like_ WHERE Id_User = ?';
     db.execute(query, [userId], (err, results) => {
@@ -206,7 +240,7 @@ app.get('/likes', verifyToken, (req, res) => {
 });
 
 app.post('/formations/:id/like', verifyToken, (req, res) => {
-    const userId = req.id; // Correction ici
+    const userId = req.id; 
     const formationId = req.params.id;
 
     const query = 'INSERT IGNORE INTO Like_ (Id_User, Id_Formation) VALUES (?, ?)';
@@ -220,7 +254,7 @@ app.post('/formations/:id/like', verifyToken, (req, res) => {
 });
 
 app.delete('/formations/:id/like', verifyToken, (req, res) => {
-    const userId = req.id; // Correction ici
+    const userId = req.id; 
     const formationId = req.params.id;
 
     const query = 'DELETE FROM Like_ WHERE Id_User = ? AND Id_Formation = ?';
@@ -246,7 +280,7 @@ app.get('/my-favorites', verifyToken, (req, res) => {
             (SELECT MIN(DateHeure) FROM Session s WHERE s.Id_Formation = F.id) as DateHeure
         FROM Like_ L
         JOIN Formation F ON L.Id_Formation = F.id
-        WHERE L.Id_User = ?
+        WHERE L.Id_User = ? AND F.statut = 'validee'
     `;
 
     db.execute(query, [userId], (err, results) => {
@@ -260,24 +294,18 @@ app.post('/formations/:id/enroll', verifyToken, (req, res) => {
     const userId = req.id;
     const formationId = req.params.id;
 
-    // 1. Chercher s'il y a une session pour cette formation
     const sessionQuery = "SELECT id FROM Session WHERE Id_Formation = ? LIMIT 1";
 
     db.execute(sessionQuery, [formationId], (err, sessions) => {
         if (err) return res.status(500).json({ error: "Erreur recherche session" });
 
-        // On récupère l'ID de session s'il existe
         const sessionId = sessions.length > 0 ? sessions[0].id : null;
 
-        // 2. Vérifier si l'utilisateur est déjà inscrit
         const checkQuery = "SELECT * FROM Participe WHERE Id_User = ? AND Id_Formation = ?";
         db.execute(checkQuery, [userId, formationId], (err, results) => {
             if (err) return res.status(500).json({ error: "Erreur vérification" });
             if (results.length > 0) return res.status(400).json({ message: "Déjà inscrit !" });
 
-            // 3. L'INSERTION
-            // Note: On n'envoie PAS nbPlaces ici, on laisse le trigger BDD gérer
-            // Mais on s'assure d'envoyer les bonnes colonnes : Id_User, Id_Formation, Id_Session, Progression, IsPresent
             const insertQuery = `
                 INSERT INTO Participe (Id_User, Id_Formation, Id_Session, Progression, IsPresent)
                 VALUES (?, ?, ?, 0.00, 0)
@@ -286,7 +314,6 @@ app.post('/formations/:id/enroll', verifyToken, (req, res) => {
             db.execute(insertQuery, [userId, formationId, sessionId], (err, result) => {
                 if (err) {
                     console.error("❌ ERREUR SQL:", err.sqlMessage);
-                    // Si l'erreur nbPlaces persiste, c'est le TRIGGER en BDD qu'il faut supprimer/refaire
                     return res.status(500).json({ error: "Erreur BDD: " + err.sqlMessage });
                 }
                 res.status(200).json({ message: "Inscription réussie !" });
@@ -347,7 +374,6 @@ app.get('/my-online-progress', verifyToken, (req, res) => {
 app.get('/my-teaching-sessions', verifyToken, (req, res) => {
     const userId = req.id;
 
-    // On relie l'utilisateur à ses sessions, puis on récupère les infos de la formation associée
     const query = `
         SELECT
             F.id AS id_formation,
@@ -384,7 +410,6 @@ app.get('/my-teaching-sessions/by-date', verifyToken, (req, res) => {
         return res.status(400).json({ error: 'La date est requise (format YYYY-MM-DD).' });
     }
 
-    // On reprend exactement la même logique de jointures que la route qui marche !
     const query = `
         SELECT
             F.id AS id_formation,
@@ -418,7 +443,6 @@ app.get('/my-teaching-sessions/by-date', verifyToken, (req, res) => {
 app.get('/sessions/:id/participants', verifyToken, (req, res) => {
     const sessionId = req.params.id;
 
-    // On fait une jointure pour récupérer le nom de l'utilisateur en plus de son statut
     const query = `
         SELECT U.id AS id_user, U.userName, P.isPresent
         FROM Participe P
@@ -442,7 +466,6 @@ app.get('/sessions/:id/participants', verifyToken, (req, res) => {
 app.post('/sessions/:id/attendance', verifyToken, async (req, res) => {
     const sessionId = req.params.id;
     const { attendances } = req.body;
-    // attendances ressemblera à ça : [{ userId: 1, isPresent: 1 }, { userId: 2, isPresent: 0 }, ...]
 
     if (!attendances || !Array.isArray(attendances)) {
         return res.status(400).json({ error: 'Données de présence invalides.' });
@@ -451,7 +474,6 @@ app.post('/sessions/:id/attendance', verifyToken, async (req, res) => {
     try {
         const query = 'UPDATE Participe SET isPresent = ? WHERE Id_User = ? AND Id_Session = ?';
 
-        // On crée un tableau de promesses pour exécuter toutes les requêtes d'un coup
         const updatePromises = attendances.map(record => {
             return new Promise((resolve, reject) => {
                 db.execute(query, [record.isPresent, record.userId, sessionId], (err, results) => {
@@ -461,7 +483,6 @@ app.post('/sessions/:id/attendance', verifyToken, async (req, res) => {
             });
         });
 
-        // On attend que toutes les mises à jour soient terminées
         await Promise.all(updatePromises);
 
         res.status(200).json({ message: 'Appel validé avec succès !' });
@@ -509,16 +530,15 @@ app.get('/admin/update-api', (req, res) => {
 // ==========================================
 app.get('/formations/:id', verifyToken, (req, res) => {
     const formationId = req.params.id;
-    const userId = req.id; // On récupère l'ID de l'utilisateur
+    const userId = req.id; 
 
-    // On ajoute un "EXISTS" pour savoir s'il est déjà inscrit !
     const query = `
         SELECT
             f.id,
             f.Titre,
             f.Description,
             f.isOnline,
-            f.Adresse, /* 👈 LA CORRECTION EST LÀ ! (f.Adresse au lieu de s.Adresse) */
+            f.Adresse, 
             s.DateHeure,
             s.nbPlaces,
             (s.nbPlaces - (SELECT COUNT(*) FROM Participe p WHERE p.Id_Session = s.id)) as nbPlacesRestantes,
@@ -559,17 +579,61 @@ app.delete('/formations/:id/enroll', verifyToken, (req, res) => {
 });
 
 // ==========================================
+// ROUTES ADMIN : MODÉRATION DES FORMATIONS
+// ==========================================
+
+// 1. Voir les propositions en attente
+app.get('/admin/formations/pending', verifyToken, (req, res) => {
+    if (!req.isAdmin) return res.status(403).json({ error: "Accès refusé." });
+
+    const query = `
+        SELECT f.*, s.DateHeure 
+        FROM Formation f 
+        LEFT JOIN Session s ON f.id = s.Id_Formation 
+        WHERE f.statut = 'en_attente'
+    `;
+    
+    db.execute(query, [], (err, results) => {
+        if (err) return res.status(500).json({ error: "Erreur serveur" });
+        res.json(results);
+    });
+});
+
+// 2. Accepter une proposition
+app.put('/admin/formations/:id/accept', verifyToken, (req, res) => {
+    if (!req.isAdmin) return res.status(403).json({ error: "Accès refusé." });
+
+    db.execute("UPDATE Formation SET statut = 'validee' WHERE id = ?", [req.params.id], (err) => {
+        if (err) return res.status(500).json({ error: "Erreur serveur" });
+        res.json({ message: "Formation validée !" });
+    });
+});
+
+// 3. Rejeter une proposition
+app.delete('/admin/formations/:id/reject', verifyToken, (req, res) => {
+    if (!req.isAdmin) return res.status(403).json({ error: "Accès refusé." });
+
+    db.execute("DELETE FROM Session WHERE Id_Formation = ?", [req.params.id], (errS) => {
+        if (errS) return res.status(500).json({ error: "Erreur serveur (Session)" });
+        
+        db.execute("DELETE FROM Formation WHERE id = ?", [req.params.id], (errF) => {
+            if (errF) return res.status(500).json({ error: "Erreur serveur (Formation)" });
+            res.json({ message: "Formation refusée et supprimée." });
+        });
+    });
+});
+
+
+// ==========================================
 // ROUTE ADMIN : DASHBOARD & STATISTIQUES (US17)
 // ==========================================
 app.get('/admin/stats', verifyToken, async (req, res) => {
-    // 1. SÉCURITÉ : On bloque si ce n'est pas un Super-Admin
     if (!req.isAdmin) {
         return res.status(403).json({ error: "Accès refusé. Espace réservé aux administrateurs." });
     }
 
-    const period = req.query.period || 'Année'; // Semaine, Ce mois, Trimestre, Année
+    const period = req.query.period || 'Année'; 
 
-    // 2. FILTRES DE DATES SQL
     let dateConditionSession = "1=1";
     let dateConditionQuiz = "1=1";
 
@@ -585,12 +649,10 @@ app.get('/admin/stats', verifyToken, async (req, res) => {
     }
 
     try {
-        // Petite fonction utilitaire pour rendre le code propre avec des requêtes asynchrones
         const queryAsync = (sql) => new Promise((resolve, reject) => {
             db.execute(sql, [], (err, results) => err ? reject(err) : resolve(results));
         });
 
-        // KPI 1 : Total Inscrits (On compte la table Participe)
         const inscrits = await queryAsync(`
             SELECT COUNT(*) as total
             FROM Participe P
@@ -598,19 +660,16 @@ app.get('/admin/stats', verifyToken, async (req, res) => {
             WHERE S.id IS NULL OR ${dateConditionSession}
         `);
 
-        // KPI 2 : Taux de réussite global (Basé sur FaitLeQuiz)
         const reussite = await queryAsync(`
             SELECT IFNULL(ROUND((SUM(IsSuccess) / COUNT(*)) * 100), 0) as taux
             FROM FaitLeQuiz
             WHERE ${dateConditionQuiz}
         `);
 
-        // KPI 3 : Sessions planifiées
         const sessions = await queryAsync(`
             SELECT COUNT(*) as total FROM Session WHERE ${dateConditionSession}
         `);
 
-        // GRAPHIQUE : Inscriptions par mois sur l'année en cours
         const chartData = await queryAsync(`
             SELECT MONTH(S.DateHeure) as mois, COUNT(P.Id_User) as count
             FROM Participe P
@@ -640,7 +699,6 @@ app.get('/admin/stats', verifyToken, async (req, res) => {
 // ==========================================
 app.get('/api/admin/certifications-attente', verifyToken, (req, res) => {
 
-    // Requête SQL PARFAITE pour tes données (avec le LEFT JOIN indispensable)
     const sqlQuery = `
         SELECT
             u.id AS id_user,
@@ -662,11 +720,9 @@ app.get('/api/admin/certifications-attente', verifyToken, (req, res) => {
             return res.status(500).json({ error: "Erreur serveur BDD" });
         }
 
-        // On affiche dans le terminal combien de personnes on a trouvé
         console.log("👉 Bingo ! Utilisateurs trouvés pour les certificats :", results.length);
 
         const dataFormatee = results.map(user => {
-            // Calcul des heures et minutes
             const totalMinutes = user.heuresTotalesMinutes || 0;
             const hours = Math.floor(totalMinutes / 60);
             const minutes = Math.floor(totalMinutes % 60);
@@ -688,25 +744,6 @@ app.get('/api/admin/certifications-attente', verifyToken, (req, res) => {
         res.json(dataFormatee);
     });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 const PORT = 3000;
