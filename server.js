@@ -848,30 +848,25 @@ app.get('/api/admin/certifications-attente', verifyToken, (req, res) => {
 // ==========================================
 app.get('/formations/:id/badge', verifyToken, (req, res) => {
     const formationId = req.params.id;
+    console.log(`🔍 [API] Requête badge pour formation ID: ${formationId}`);
 
-    // On cherche le badge lié à l'ID de la formation
-    // Note : On utilise 'id' et 'nomBadge' pour matcher ta table Badges
-    const query = `
-        SELECT id, nomBadge, URLImage 
-        FROM Badges 
-        WHERE Id_Formation = ?
-    `;
+    const query = `SELECT id, nomBadge, URLImage FROM Badges WHERE Id_Formation = ?`;
 
     db.execute(query, [formationId], (err, results) => {
         if (err) {
-            console.error("Erreur SQL Badge Formation :", err);
-            return res.status(500).json({ error: "Erreur serveur lors de la récupération du badge." });
+            console.error("❌ [API] Erreur SQL :", err);
+            return res.status(500).json({ error: "Erreur SQL" });
         }
 
         if (results.length === 0) {
-            return res.status(404).json({ error: "Aucun badge trouvé pour cette formation." });
+            console.warn(`⚠️ [API] Aucun badge en BDD pour l'ID ${formationId}`);
+            return res.status(404).json({ error: "Pas de badge" });
         }
 
-        // On renvoie le premier (et seul) badge trouvé
+        console.log("✅ [API] Badge envoyé :", results[0]);
         res.status(200).json(results[0]);
     });
 });
-
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`API en cours d'exécution sur le port ${PORT}`);
