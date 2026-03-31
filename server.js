@@ -726,6 +726,10 @@ app.delete('/admin/formations/:id/reject', verifyToken, (req, res) => {
     });
 });
 
+const verifyAdmin = (req, res, next) => {
+    if (!req.isAdmin) return res.status(403).json({ error: 'Accès refusé' });
+    next();
+};
 
 // ==========================================
 // ROUTE ADMIN : DASHBOARD & STATISTIQUES (US17)
