@@ -193,34 +193,52 @@ app.get('/formations', verifyToken, (req, res) => {
 });
 
 // ==========================================
-// ROUTE : CRÉER/PROPOSER UNE FORMATION (MODIFIÉE)
+// ROUTE : AJOUTER / PROPOSER UNE FORMATION
 // ==========================================
-app.post('/formations', verifyToken, (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes } = req.body;
+app.post('/formations', verifyToken, async (req, res) => {
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs } = req.body;
     
-    // 1. On insère la formation avec le statut 'en_attente'
-    const queryForm = `INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut) VALUES (?, ?, ?, ?, 'en_attente')`;
-    
-    db.execute(queryForm, [Titre, Description, isOnline, Adresse], (err, result) => {
-        if (err) return res.status(500).json({ error: "Erreur BDD Formation." });
+    try {
+        // 1. On insère la formation avec le statut 'en_attente'
+        const queryForm = `
+            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut) 
+            VALUES (?, ?, ?, ?, 'en_attente')
+        `;
+        
+        db.execute(queryForm, [Titre, Description, isOnline, Adresse], (err, result) => {
+            if (err) {
+                console.error("Erreur BDD Insertion Formation :", err);
+                return res.status(500).json({ error: "Erreur serveur lors de la création de la formation." });
+            }
 
-        const formationId = result.insertId;
+            const formationId = result.insertId;
 
-        // 2. Si une date est fournie, on crée la session associée
-        if (DateHeure) {
-            // Fix MySQL : on s'assure d'avoir les secondes (YYYY-MM-DD HH:MM:00)
-            const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
-            
-            const querySess = `
-                INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
-                VALUES (?, ?, 90, ?, ?, 'À Venir', ?)
-            `;
-            db.execute(querySess, [formationId, formattedDate, nbPlacesRestantes || 0, nbPlacesRestantes || 0, Adresse], (errS) => {
-                if (errS) console.error("Erreur Session lors de la proposition:", errS);
-            });
-        }
-        res.status(201).json({ message: "Proposition envoyée avec succès !" });
-    });
+            // 2. S'il y a une date, on crée la session associée
+            if (DateHeure) {
+                // Fix MySQL : on garantit le format YYYY-MM-DD HH:MM:SS
+                const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
+                const places = parseInt(nbPlacesRestantes) || 0;
+
+                const querySess = `
+                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
+                    VALUES (?, ?, 90, ?, ?, 'À Venir', ?)
+                `;
+                
+                db.execute(querySess, [formationId, formattedDate, places, places, Adresse], (errSess) => {
+                    if (errSess) {
+                        console.error("Erreur BDD Insertion Session :", errSess);
+                        // On ne bloque pas la réponse si seule la session plante, mais on le log
+                    }
+                });
+            }
+
+            // 3. On renvoie un JSON propre pour que l'appli mobile affiche la modale de Succès
+            res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
+        });
+    } catch (error) {
+        console.error("Crash Route POST /formations :", error);
+        res.status(500).json({ error: "Erreur interne du serveur." });
+    }
 });
 
 
