@@ -4,6 +4,8 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { exec } = require('child_process');
+const multer = require('multer');
+const fs = require('fs');
 
 const SECRET_KEY = "OPENMINDS_SUPER_SECRET_2026";
 
@@ -13,6 +15,19 @@ app.use(express.json());
 const path = require('path');
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads/formations', express.static(path.join(__dirname, 'public/formations')));
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = path.join(__dirname, 'public/formations');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); // Crée le dossier s'il n'existe pas
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname));
+    }
+});
+const upload = multer({ storage });
 
 const db = mysql.createPool({
   host: 'db',
@@ -193,20 +208,33 @@ app.get('/formations', verifyToken, (req, res) => {
 });
 
 // ==========================================
-// ROUTE : AJOUTER / PROPOSER UNE FORMATION
+// ROUTE : AJOUTER / PROPOSER UNE FORMATION (AVEC IMAGE)
 // ==========================================
-app.post('/formations', verifyToken, async (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs } = req.body;
+app.post('/formations', verifyToken, upload.single('image'), async (req, res) => {
+    // Avec FormData, toutes les valeurs arrivent sous forme de texte (String)
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs, generatedImage } = req.body;
     
+    // 1. Gestion de l'image (Upload vs Générée aléatoirement)
+    let imageFinale = null;
+    if (req.file) {
+        imageFinale = `/uploads/formations/${req.file.filename}`;
+    } else if (generatedImage && generatedImage !== 'null') {
+        imageFinale = generatedImage;
+    } else {
+        imageFinale = `https://picsum.photos/seed/${Date.now()}/300/300`;
+    }
+
     try {
-        // 👇 AJOUT DE Id_User ICI
+        // 2. Conversion sécurisée pour MySQL
+        const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
+
+        // 3. Insertion de la formation avec la colonne "Image"
         const queryForm = `
-            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User) 
-            VALUES (?, ?, ?, ?, 'en_attente', ?)
+            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
+            VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
         `;
         
-        // 👇 AJOUT DE req.id À LA FIN DU TABLEAU POUR L'INSERER DANS LA BDD
-        db.execute(queryForm, [Titre, Description, isOnline, Adresse, req.id], (err, result) => {
+        db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale], (err, result) => {
             if (err) {
                 console.error("Erreur BDD Insertion Formation :", err);
                 return res.status(500).json({ error: "Erreur SQL : " + err.sqlMessage });
@@ -214,9 +242,8 @@ app.post('/formations', verifyToken, async (req, res) => {
 
             const formationId = result.insertId;
 
-            // 2. S'il y a une date, on crée la session associée
-            if (DateHeure) {
-                // Fix MySQL : on garantit le format YYYY-MM-DD HH:MM:SS
+            // 4. Création de la session si une date valide est fournie
+            if (DateHeure && DateHeure !== 'null' && DateHeure !== '') {
                 const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
                 const places = parseInt(nbPlacesRestantes) || 0;
 
@@ -232,7 +259,7 @@ app.post('/formations', verifyToken, async (req, res) => {
                 });
             }
 
-            // 3. Succès !
+            // 5. Succès !
             res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
         });
     } catch (error) {
@@ -240,7 +267,6 @@ app.post('/formations', verifyToken, async (req, res) => {
         res.status(500).json({ error: "Erreur interne du serveur." });
     }
 });
-
 
 app.get('/likes', verifyToken, (req, res) => {
     const userId = req.id; 
