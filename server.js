@@ -846,7 +846,7 @@ app.get('/api/admin/certifications-attente', verifyToken, (req, res) => {
 // ==========================================
 // ROUTE : RÉCUPÉRER LE BADGE D'UNE FORMATION SPÉCIFIQUE
 // ==========================================
-app.get('/formations/:id/badge', (req, res) => {
+app.get('/formations/:id/badge', verifyToken, (req, res) => {
     const formationId = req.params.id;
     console.log(`🔍 [API] Requête badge pour formation ID: ${formationId}`);
 
