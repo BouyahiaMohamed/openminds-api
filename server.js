@@ -996,6 +996,38 @@ app.post('/formations/:id/quiz/submit', verifyToken, (req, res) => {
     });
 });
 
+
+app.post('/api/generate-image', async (req, res) => {
+    const { prompt } = req.body;
+    try {
+        const response = await fetch(
+            'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // 'Authorization': 'Bearer hf_xxx' // optionnel
+                },
+                body: JSON.stringify({ inputs: prompt }),
+            }
+        );
+
+        if (!response.ok) {
+            const err = await response.json();
+            return res.status(response.status).json(err);
+        }
+
+        const buffer = await response.arrayBuffer();
+        res.set('Content-Type', 'image/jpeg');
+        res.send(Buffer.from(buffer));
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`API en cours d'exécution sur le port ${PORT}`);
