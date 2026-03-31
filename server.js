@@ -17,6 +17,9 @@ app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/uploads/formations', express.static(path.join(__dirname, 'public/formations')));
 
+app.use('/badges', express.static(path.join(__dirname, 'uploads/badges')));
+app.use('/public/badges', express.static(path.join(__dirname, 'uploads')));
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const dir = path.join(__dirname, 'uploads/formations');
