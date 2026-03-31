@@ -590,41 +590,7 @@ app.get('/admin/update-api', (req, res) => {
 });
 
 
-// ==========================================
-// ROUTE : RÉCUPÉRER LES DÉTAILS D'UNE FORMATION
-// ==========================================
-app.get('/formations/:id', verifyToken, (req, res) => {
-    const formationId = req.params.id;
-    const userId = req.id; 
 
-    const query = `
-        SELECT
-            f.id,
-            f.Titre,
-            f.Description,
-            f.isOnline,
-            f.Adresse, 
-            f.Image,
-            s.DateHeure,
-            s.nbPlaces,
-            (s.nbPlaces - (SELECT COUNT(*) FROM Participe p WHERE p.Id_Session = s.id)) as nbPlacesRestantes,
-            (SELECT GROUP_CONCAT(U.userName SEPARATOR ', ')
-             FROM APourFormateur APF
-             JOIN users U ON APF.id_User = U.id
-             WHERE APF.id_Session = s.id) as Formateurs,
-            EXISTS(SELECT 1 FROM Participe P WHERE P.Id_Formation = f.id AND P.Id_User = ?) AS isEnrolled
-        FROM Formation f
-        LEFT JOIN Session s ON f.id = s.Id_Formation
-        WHERE f.id = ?
-        LIMIT 1
-    `;
-
-    db.execute(query, [userId, formationId], (err, results) => {
-        if (err) return res.status(500).json({ error: "Erreur serveur" });
-        if (results.length === 0) return res.status(404).json({ error: "Formation non trouvée" });
-        res.json(results[0]);
-    });
-});
 
 // ==========================================
 // ROUTE : SE DÉSINSCRIRE D'UNE FORMATION
@@ -1068,6 +1034,41 @@ app.post('/my-badges/claim', verifyToken, (req, res) => {
     });
 });
 
+// ==========================================
+// ROUTE : RÉCUPÉRER LES DÉTAILS D'UNE FORMATION
+// ==========================================
+app.get('/formations/:id', verifyToken, (req, res) => {
+    const formationId = req.params.id;
+    const userId = req.id; 
+
+    const query = `
+        SELECT
+            f.id,
+            f.Titre,
+            f.Description,
+            f.isOnline,
+            f.Adresse, 
+            f.Image,
+            s.DateHeure,
+            s.nbPlaces,
+            (s.nbPlaces - (SELECT COUNT(*) FROM Participe p WHERE p.Id_Session = s.id)) as nbPlacesRestantes,
+            (SELECT GROUP_CONCAT(U.userName SEPARATOR ', ')
+             FROM APourFormateur APF
+             JOIN users U ON APF.id_User = U.id
+             WHERE APF.id_Session = s.id) as Formateurs,
+            EXISTS(SELECT 1 FROM Participe P WHERE P.Id_Formation = f.id AND P.Id_User = ?) AS isEnrolled
+        FROM Formation f
+        LEFT JOIN Session s ON f.id = s.Id_Formation
+        WHERE f.id = ?
+        LIMIT 1
+    `;
+
+    db.execute(query, [userId, formationId], (err, results) => {
+        if (err) return res.status(500).json({ error: "Erreur serveur" });
+        if (results.length === 0) return res.status(404).json({ error: "Formation non trouvée" });
+        res.json(results[0]);
+    });
+});
 
 const PORT = 3000;
 app.listen(PORT, () => {
