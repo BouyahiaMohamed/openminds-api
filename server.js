@@ -867,37 +867,6 @@ app.get('/formations/:id/badge', verifyToken, (req, res) => {
         res.status(200).json(results[0]);
     });
 });
-// ==========================================
-// ROUTE : ATTRIBUER UN BADGE À UN UTILISATEUR
-// ==========================================
-app.post('/my-badges/claim', verifyToken, (req, res) => {
-    const userId = req.id; // Récupéré du token
-    const { badgeId } = req.body;
-
-    if (!badgeId) {
-        return res.status(400).json({ error: "ID du badge manquant." });
-    }
-
-    // INSERT IGNORE évite les doublons si l'utilisateur revient sur la page
-    const query = `
-        INSERT IGNORE INTO Possede (Id_User, Id_Badges, DateObtention) 
-        VALUES (?, ?, NOW())
-    `;
-
-    db.execute(query, [userId, badgeId], (err, result) => {
-        if (err) {
-            console.error("❌ Erreur SQL Claim Badge :", err);
-            return res.status(500).json({ error: "Erreur lors de l'enregistrement du badge." });
-        }
-
-        if (result.affectedRows === 0) {
-            return res.status(200).json({ message: "Badge déjà possédé." });
-        }
-
-        res.status(201).json({ message: "Badge obtenu avec succès !" });
-    });
-});
-
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`API en cours d'exécution sur le port ${PORT}`);
