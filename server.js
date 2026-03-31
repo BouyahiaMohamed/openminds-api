@@ -216,12 +216,14 @@ app.get('/formations', verifyToken, (req, res) => {
 app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
     const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
     
-    if (!req.id) return res.status(401).json({ error: "Utilisateur non connecté." });
+    // 1. On s'assure que req.id existe (sinon on met null pour éviter le crash)
+    const userId = req.id || null;
 
+    // 2. Gestion de l'image
     let imageFinale = null;
     if (req.file) {
         imageFinale = `/uploads/formations/${req.file.filename}`;
-    } else if (generatedImage && generatedImage !== 'null') {
+    } else if (generatedImage && generatedImage !== 'null' && generatedImage !== '') {
         imageFinale = generatedImage;
     } else {
         imageFinale = `https://picsum.photos/seed/${Date.now()}/300/300`;
@@ -230,31 +232,43 @@ app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
     const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
     const queryForm = `
-        INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
-        VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
+        INSERT INTO Formation 
+        (Titre, Description, isOnline, URLVideo, Id_AssociationsPartenaires, Id_User, Adresse, statut, Image) 
+        VALUES (?, ?, ?, NULL, NULL, ?, ?, 'en_attente', ?)
     `;
     
-    db.execute(queryForm, [Titre, Description || '', isOnlineInt, Adresse || '', req.id, imageFinale], (err, result) => {
+    // FIX : On force toutes les valeurs à NULL ou chaîne vide si elles sont undefined
+    const paramsForm = [
+        Titre || null,           // Si Titre est undefined -> null
+        Description || '',       // Si Description est undefined -> ''
+        isOnlineInt,             // Toujours 0 ou 1
+        userId,                  // ID de l'utilisateur
+        Adresse || '',           // Si Adresse est undefined -> ''
+        imageFinale || null      // Si image est undefined -> null
+    ];
+
+    db.execute(queryForm, paramsForm, (err, result) => {
         if (err) {
-            console.error("❌ ERREUR SQL FORMATION :", err);
+            console.error("❌ ERREUR SQL :", err.sqlMessage || err);
             return res.status(500).json({ error: "Erreur BDD", details: err.sqlMessage });
         }
 
         const formationId = result.insertId;
 
+        // Insertion Session (si date valide)
         if (DateHeure && !DateHeure.includes('undefined') && DateHeure.length > 10) {
             const places = parseInt(nbPlacesRestantes) || 0;
             const querySess = `
                 INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
                 VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
             `;
-            
+            // On applique la même sécurité ici pour l'Adresse
             db.execute(querySess, [formationId, DateHeure, places, places, Adresse || 'En ligne'], (errSess) => {
-                if (errSess) console.error("⚠️ ERREUR SQL SESSION :", errSess.sqlMessage);
+                if (errSess) console.error("⚠️ ERREUR SESSION :", errSess.sqlMessage);
             });
         }
 
-        res.status(201).json({ message: "Formation créée !", id: formationId });
+        res.status(201).json({ message: "Formation créée avec succès !", id: formationId });
     });
 });
 
