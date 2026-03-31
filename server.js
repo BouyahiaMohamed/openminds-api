@@ -215,23 +215,46 @@ app.get('/formations', verifyToken, (req, res) => {
 // ROUTE : AJOUTER / PROPOSER UNE FORMATION
 // ==========================================
 app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
+    const {
+        Titre,
+        Description,
+        isOnline,
+        Adresse,
+        DateHeure,
+        nbPlacesRestantes,
+        generatedImage,
+        URLVideo // <-- On récupère l'URL ici
+    } = req.body;
+
     const userId = req.id;
 
-    // On récupère le quiz (envoyé en string JSON dans le FormData)
-    let quizData = [];
-    try {
-        if (req.body.quiz) quizData = JSON.parse(req.body.quiz);
-    } catch (e) { console.error("Erreur parse quiz", e); }
+    // ... gestion de l'image et du quiz (garde ton code actuel) ...
 
-    let imageFinale = req.file ? `/uploads/formations/${req.file.filename}` : (generatedImage || `https://picsum.photos/seed/${Date.now()}/300/300`);
-    const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
+    const isOnlineInt = (isOnline === '1' || isOnline === 'true' || isOnline === true) ? 1 : 0;
 
-    // 1. Insertion de la Formation
-    const queryForm = `INSERT INTO Formation (Titre, Description, isOnline, Id_User, Adresse, statut, Image) VALUES (?, ?, ?, ?, ?, 'en_attente', ?)`;
+    // MISE À JOUR DE LA REQUÊTE : on remplace le premier NULL (URLVideo) par un ?
+    const queryForm = `
+        INSERT INTO Formation 
+        (Titre, Description, isOnline, URLVideo, Id_AssociationsPartenaires, Id_User, Adresse, statut, Image) 
+        VALUES (?, ?, ?, ?, NULL, ?, ?, 'en_attente', ?)
+    `;
 
-    db.execute(queryForm, [Titre, Description, isOnlineInt, userId, Adresse, imageFinale], (err, result) => {
-        if (err) return res.status(500).json({ error: err.sqlMessage });
+    // MISE À JOUR DES PARAMÈTRES (L'ordre est crucial !)
+    const paramsForm = [
+        Titre,           // 1
+        Description,     // 2
+        isOnlineInt,     // 3
+        URLVideo || null, // 4 (Nouveau)
+        userId,          // 5
+        Adresse,         // 6
+        imageFinale      // 7
+    ];
+    db.execute(queryForm, paramsForm, (err, result) => { // <-- On passe paramsForm ici !
+        if (err) {
+            console.error("❌ ERREUR SQL FORMATION :", err.sqlMessage);
+            // On renvoie du JSON même en cas d'erreur pour éviter le crash du JSON.parse côté mobile
+            return res.status(500).json({ error: err.sqlMessage });
+        }
 
         const formationId = result.insertId;
 
@@ -242,12 +265,12 @@ app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
             db.execute(querySess, [formationId, DateHeure, places, places, Adresse || 'En ligne']);
         }
 
-        // 3. Création automatique d'un Badge (obligatoire pour que le succès du quiz fonctionne)
+        // 3. Création automatique d'un Badge
         const queryBadge = `INSERT INTO Badges (nomBadge, URLImage, Id_Formation) VALUES (?, ?, ?)`;
         db.execute(queryBadge, [`Badge ${Titre}`, '/badges/random.png', formationId]);
 
-        // 4. Insertion du Quiz (Questions et Réponses)
-        if (quizData.length > 0) {
+        // 4. Insertion du Quiz
+        if (quizData && quizData.length > 0) {
             quizData.forEach(q => {
                 const queryQ = `INSERT INTO Question (textQuestion, Id_Formation) VALUES (?, ?)`;
                 db.execute(queryQ, [q.text, formationId], (errQ, resQ) => {
@@ -262,6 +285,7 @@ app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
             });
         }
 
+        // ✅ On répond en JSON à la toute fin
         res.status(201).json({ message: "Formation et Quiz créés !", id: formationId });
     });
 });
@@ -710,22 +734,11 @@ app.delete('/admin/formations/:id/reject', verifyToken, (req, res) => {
     });
 });
 
-app.delete('/admin/formations/:id/reject', verifyToken, (req, res) => {
-    if (!req.isAdmin) return res.status(403).json({ error: "Accès refusé." });
 
-    const formationId = req.params.id;
-
-    // On supprime les sessions d'abord pour éviter les erreurs de clés étrangères
-    db.execute("DELETE FROM Session WHERE Id_Formation = ?", [formationId], (errS) => {
-        if (errS) return res.status(500).json({ error: "Erreur suppression sessions." });
-        
-        db.execute("DELETE FROM Formation WHERE id = ?", [formationId], (errF) => {
-            if (errF) return res.status(500).json({ error: "Erreur suppression formation." });
-            res.json({ message: "Formation refusée et supprimée." });
-        });
-    });
-});
-
+const verifyAdmin = (req, res, next) => {
+    if (!req.isAdmin) return res.status(403).json({ error: 'Accès refusé' });
+    next();
+};
 
 // ==========================================
 // ROUTE ADMIN : DASHBOARD & STATISTIQUES (US17)
@@ -796,6 +809,7 @@ app.get('/admin/stats', verifyToken, async (req, res) => {
         res.status(500).json({ error: "Erreur calcul des statistiques" });
     }
 });
+
 
 // ==========================================
 // ROUTE 6 : RÉCUPÉRER LES DEMANDES DE CERTIFICATIONS (ADMIN)
