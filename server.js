@@ -229,11 +229,11 @@ app.post('/formations', verifyToken, upload.single('image'), async (req, res) =>
         const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
         const queryForm = `
-            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
-            VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
-        `;
+        INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image, Formateurs) 
+        VALUES (?, ?, ?, ?, 'en_attente', ?, ?, ?) -- Ajout de Formateurs ici
+    `;
         
-        db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale], (err, result) => {
+        db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale, Formateurs], (err, result) => {
             if (err) {
                 console.error("Erreur BDD Insertion Formation :", err);
                 return res.status(500).json({ error: "Erreur SQL : " + err.sqlMessage });
