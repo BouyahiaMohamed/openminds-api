@@ -843,7 +843,34 @@ app.get('/api/admin/certifications-attente', verifyToken, (req, res) => {
         res.json(dataFormatee);
     });
 });
+// ==========================================
+// ROUTE : RÉCUPÉRER LE BADGE D'UNE FORMATION SPÉCIFIQUE
+// ==========================================
+app.get('/formations/:id/badge', verifyToken, (req, res) => {
+    const formationId = req.params.id;
 
+    // On cherche le badge lié à l'ID de la formation
+    // Note : On utilise 'id' et 'nomBadge' pour matcher ta table Badges
+    const query = `
+        SELECT id, nomBadge, URLImage 
+        FROM Badges 
+        WHERE Id_Formation = ?
+    `;
+
+    db.execute(query, [formationId], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL Badge Formation :", err);
+            return res.status(500).json({ error: "Erreur serveur lors de la récupération du badge." });
+        }
+
+        if (results.length === 0) {
+            return res.status(404).json({ error: "Aucun badge trouvé pour cette formation." });
+        }
+
+        // On renvoie le premier (et seul) badge trouvé
+        res.status(200).json(results[0]);
+    });
+});
 
 const PORT = 3000;
 app.listen(PORT, () => {
