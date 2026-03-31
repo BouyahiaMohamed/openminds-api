@@ -215,21 +215,40 @@ app.get('/formations', verifyToken, (req, res) => {
 // ROUTE : AJOUTER / PROPOSER UNE FORMATION
 // ==========================================
 app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
+    const {
+        Titre,
+        Description,
+        isOnline,
+        Adresse,
+        DateHeure,
+        nbPlacesRestantes,
+        generatedImage,
+        URLVideo // <-- On récupère l'URL ici
+    } = req.body;
+
     const userId = req.id;
 
-    // On récupère le quiz (envoyé en string JSON dans le FormData)
-    let quizData = [];
-    try {
-        if (req.body.quiz) quizData = JSON.parse(req.body.quiz);
-    } catch (e) { console.error("Erreur parse quiz", e); }
+    // ... gestion de l'image et du quiz (garde ton code actuel) ...
 
-    let imageFinale = req.file ? `/uploads/formations/${req.file.filename}` : (generatedImage || `https://picsum.photos/seed/${Date.now()}/300/300`);
-    const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
+    const isOnlineInt = (isOnline === '1' || isOnline === 'true' || isOnline === true) ? 1 : 0;
 
-    // 1. Insertion de la Formation
-    const queryForm = `INSERT INTO Formation (Titre, Description, isOnline, Id_User, Adresse, statut, Image) VALUES (?, ?, ?, ?, ?, 'en_attente', ?)`;
+    // MISE À JOUR DE LA REQUÊTE : on remplace le premier NULL (URLVideo) par un ?
+    const queryForm = `
+        INSERT INTO Formation 
+        (Titre, Description, isOnline, URLVideo, Id_AssociationsPartenaires, Id_User, Adresse, statut, Image) 
+        VALUES (?, ?, ?, ?, NULL, ?, ?, 'en_attente', ?)
+    `;
 
+    // MISE À JOUR DES PARAMÈTRES (L'ordre est crucial !)
+    const paramsForm = [
+        Titre,           // 1
+        Description,     // 2
+        isOnlineInt,     // 3
+        URLVideo || null, // 4 (Nouveau)
+        userId,          // 5
+        Adresse,         // 6
+        imageFinale      // 7
+    ];
     db.execute(queryForm, [Titre, Description, isOnlineInt, userId, Adresse, imageFinale], (err, result) => {
         if (err) return res.status(500).json({ error: err.sqlMessage });
 
