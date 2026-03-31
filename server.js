@@ -755,109 +755,135 @@ const verifyAdmin = (req, res, next) => {
 // ==========================================
 app.get('/admin/stats', verifyToken, verifyAdmin, (req, res) => {
     const { period } = req.query;
-
-    // Calcul du filtre de temps SQL
+ 
+    // Calcul de la date de début selon la période
     let dateFilter = '';
     switch (period) {
-        case 'Semaine':   dateFilter = 'INTERVAL 7 DAY';   break;
+        case 'Semaine':    dateFilter = 'INTERVAL 7 DAY';   break;
         case 'Trimestre':  dateFilter = 'INTERVAL 3 MONTH'; break;
         case 'Année':      dateFilter = 'INTERVAL 1 YEAR';  break;
         default:           dateFilter = 'INTERVAL 1 MONTH'; // Mois
     }
-
-    // ── KPI 1 : Nombre d'inscrits aux sessions de la période
+ 
+    // ── KPI 1 : Total inscrits sur la période ──────────────────────────────────
     const queryInscrits = `
-        SELECT COUNT(P.Id_User) AS inscrits 
-        FROM Participe P
-        JOIN Session S ON P.Id_Session = S.id
-        WHERE S.DateHeure >= DATE_SUB(NOW(), ${dateFilter})`;
-
-    // ── KPI 2 : Taux de complétion moyen sur ces sessions
+        SELECT COUNT(*) AS inscrits
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), ${dateFilter})
+    `;
+ 
+    // ── KPI 2 : Taux de complétion (Progression = 100) ─────────────────────────
     const queryTaux = `
-        SELECT IFNULL(ROUND(AVG(CASE WHEN P.Progression >= 100 THEN 1 ELSE 0 END) * 100, 0), 0) AS taux 
-        FROM Participe P
-        JOIN Session S ON P.Id_Session = S.id
-        WHERE S.DateHeure >= DATE_SUB(NOW(), ${dateFilter})`;
-
-    // ── KPI 3 : Nombre total de sessions physiques à venir
+        SELECT
+            ROUND(
+                COUNT(CASE WHEN Progression >= 100 THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0)
+            , 0) AS taux
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), ${dateFilter})
+    `;
+ 
+    // ── KPI 3 : Sessions actives sur la période ────────────────────────────────
     const querySessions = `
-        SELECT COUNT(*) AS sessions 
-        FROM Session 
-        WHERE Statut = 'À Venir' AND DateHeure >= NOW()`;
-
-    // ── KPI 4 : Formations en attente de validation
+        SELECT COUNT(*) AS sessions
+        FROM Session
+        WHERE Statut = 'À Venir'
+          AND DateHeure >= DATE_SUB(NOW(), ${dateFilter})
+    `;
+ 
+    // ── KPI 4 : Formations en attente de modération ────────────────────────────
     const queryPending = `
-        SELECT COUNT(*) AS pending 
-        FROM Formation 
-        WHERE statut = 'en_attente'`;
-
-    // ── GRAPHIQUE : Inscriptions groupées par mois (via Session)
+        SELECT COUNT(*) AS pending
+        FROM Formation
+        WHERE statut = 'en_attente'
+    `;
+ 
+    // ── GRAPHIQUE : Inscriptions + Complétions + En cours par mois/semaine ─────
     const queryChart = `
-        SELECT 
-            MONTH(S.DateHeure) AS mois, 
-            COUNT(P.Id_User) AS inscrits,
-            SUM(CASE WHEN P.Progression >= 100 THEN 1 ELSE 0 END) AS completions
-        FROM Participe P
-        JOIN Session S ON P.Id_Session = S.id
-        WHERE S.DateHeure >= DATE_SUB(NOW(), ${dateFilter})
-        GROUP BY MONTH(S.DateHeure)
-        ORDER BY mois ASC`;
-
-    // ── TOP FORMATIONS (Basé sur le total d'inscrits historique)
+        SELECT
+            MONTH(DateInscription) AS mois,
+            YEAR(DateInscription)  AS annee,
+            COUNT(*) AS inscrits,
+            COUNT(CASE WHEN Progression >= 100 THEN 1 END) AS completions,
+            COUNT(CASE WHEN Progression > 0 AND Progression < 100 THEN 1 END) AS en_cours
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), ${dateFilter})
+        GROUP BY YEAR(DateInscription), MONTH(DateInscription)
+        ORDER BY annee ASC, mois ASC
+    `;
+ 
+    // ── TOP FORMATIONS ─────────────────────────────────────────────────────────
     const queryTop = `
-        SELECT F.Titre, COUNT(P.Id_User) AS inscrits
+        SELECT
+            F.Titre,
+            COUNT(P.Id_User) AS inscrits,
+            ROUND(
+                COUNT(CASE WHEN P.Progression >= 100 THEN 1 END) * 100.0 / NULLIF(COUNT(P.Id_User), 0)
+            , 0) AS taux
         FROM Formation F
-        JOIN Participe P ON P.Id_Formation = F.id
+        LEFT JOIN Participe P ON P.Id_Formation = F.id
+        WHERE F.statut = 'validee'
+          AND P.DateInscription >= DATE_SUB(NOW(), ${dateFilter})
         GROUP BY F.id, F.Titre
         ORDER BY inscrits DESC
-        LIMIT 5`;
-
-    // ── RÉPARTITION PAR JOUR (7 derniers jours de sessions)
+        LIMIT 5
+    `;
+ 
+    // ── INSCRIPTIONS PAR JOUR (7 derniers jours) ───────────────────────────────
     const queryBar = `
-        SELECT DAYOFWEEK(S.DateHeure) AS jour, COUNT(P.Id_User) AS count
-        FROM Participe P
-        JOIN Session S ON P.Id_Session = S.id
-        WHERE S.DateHeure >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-        GROUP BY jour
-        ORDER BY jour ASC`;
-
-    // Exécution parallèle
+        SELECT
+            DAYOFWEEK(DateInscription) AS jour,
+            COUNT(*) AS count
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        GROUP BY DAYOFWEEK(DateInscription)
+        ORDER BY jour ASC
+    `;
+ 
+    // ── Exécution parallèle de toutes les requêtes ─────────────────────────────
     Promise.all([
-        new Promise((resolve) => db.execute(queryInscrits, [], (err, r) => resolve(r ? r[0] : {inscrits: 0}))),
-        new Promise((resolve) => db.execute(queryTaux, [], (err, r) => resolve(r ? r[0] : {taux: 0}))),
-        new Promise((resolve) => db.execute(querySessions, [], (err, r) => resolve(r ? r[0] : {sessions: 0}))),
-        new Promise((resolve) => db.execute(queryPending, [], (err, r) => resolve(r ? r[0] : {pending: 0}))),
-        new Promise((resolve) => db.execute(queryChart, [], (err, r) => resolve(r || []))),
-        new Promise((resolve) => db.execute(queryTop, [], (err, r) => resolve(r || []))),
-        new Promise((resolve) => db.execute(queryBar, [], (err, r) => resolve(r || [])))
+        new Promise((resolve, reject) => db.execute(queryInscrits, [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(queryTaux,     [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(querySessions, [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(queryPending,  [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(queryChart,    [], (err, r) => err ? reject(err) : resolve(r))),
+        new Promise((resolve, reject) => db.execute(queryTop,      [], (err, r) => err ? reject(err) : resolve(r))),
+        new Promise((resolve, reject) => db.execute(queryBar,      [], (err, r) => err ? reject(err) : resolve(r))),
     ])
     .then(([inscrits, taux, sessions, pending, chart, top, bar]) => {
-        
+ 
+        // Formater le graphique linéaire
         const moisNoms = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
+        const chartFormatted = {
+            labels:      chart.map(r => moisNoms[r.mois - 1]),
+            inscrits:    chart.map(r => r.inscrits),
+            completions: chart.map(r => r.completions),
+            en_cours:    chart.map(r => r.en_cours),
+        };
+ 
+        // Formater le bar chart (7 jours, index 0=Dim ... 6=Sam)
         const joursNoms = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
-
+        const barMap = {};
+        bar.forEach(r => barMap[r.jour] = r.count);
+        const barFormatted = joursNoms.map((label, i) => ({
+            label,
+            count: barMap[i + 1] || 0
+        }));
+ 
         res.json({
             kpis: {
-                inscrits: inscrits.inscrits,
-                taux: taux.taux,
-                sessions: sessions.sessions,
-                pending: pending.pending,
+                inscrits:  inscrits.inscrits  || 0,
+                taux:      taux.taux          || 0,
+                sessions:  sessions.sessions  || 0,
+                pending:   pending.pending    || 0,
             },
-            chart: {
-                labels: chart.map(r => moisNoms[r.mois - 1] || '???'),
-                inscrits: chart.map(r => r.inscrits),
-                completions: chart.map(r => r.completions)
-            },
-            topFormations: top,
-            barJours: joursNoms.map((label, i) => {
-                const found = bar.find(b => b.jour === (i + 1));
-                return { label, count: found ? found.count : 0 };
-            })
+            chart:          chartFormatted,
+            topFormations:  top,
+            barJours:       barFormatted,
         });
     })
     .catch(err => {
-        console.error("Erreur Stats Admin:", err);
-        res.status(500).json({ error: "Erreur lors du calcul des statistiques." });
+        console.error('Erreur stats admin:', err);
+        res.status(500).json({ error: 'Erreur lors du calcul des statistiques.' });
     });
 });
 
