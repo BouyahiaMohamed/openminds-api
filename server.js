@@ -150,18 +150,19 @@ app.get('/my-formations', verifyToken, (req, res) => {
 
     const query = `
         SELECT
-            F.id AS id_formation,
-            F.Titre,
-            F.isOnline,
-            S.DateHeure,
-            S.Duree,
-            S.Statut,
-            P.Progression
-        FROM Participe P
-        JOIN Formation F ON P.Id_Formation = F.id
-        LEFT JOIN Session S ON P.Id_Session = S.id
-        WHERE P.Id_User = ?
-        ORDER BY S.DateHeure ASC
+        F.id AS id_formation,
+        F.Titre,
+        F.isOnline,
+        F.Image,
+        S.DateHeure,
+        S.Duree,
+        S.Statut,
+        P.Progression
+    FROM Participe P
+    JOIN Formation F ON P.Id_Formation = F.id
+    LEFT JOIN Session S ON P.Id_Session = S.id
+    WHERE P.Id_User = ?
+    ORDER BY S.DateHeure ASC
     `;
 
     db.execute(query, [userId], (err, results) => {
@@ -340,14 +341,15 @@ app.get('/my-favorites', verifyToken, (req, res) => {
 
     const query = `
         SELECT
-            F.id,
-            F.Titre,
-            F.Description,
-            F.isOnline,
-            (SELECT MIN(DateHeure) FROM Session s WHERE s.Id_Formation = F.id) as DateHeure
-        FROM Like_ L
-        JOIN Formation F ON L.Id_Formation = F.id
-        WHERE L.Id_User = ? AND F.statut = 'validee'
+        F.id,
+        F.Titre,
+        F.Description,
+        F.isOnline,
+        F.Image,
+        (SELECT MIN(DateHeure) FROM Session s WHERE s.Id_Formation = F.id) as DateHeure
+    FROM Like_ L
+    JOIN Formation F ON L.Id_Formation = F.id
+    WHERE L.Id_User = ? AND F.statut = 'validee'
     `;
 
     db.execute(query, [userId], (err, results) => {
