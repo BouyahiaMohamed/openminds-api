@@ -636,23 +636,27 @@ app.get('/admin/formations/pending', verifyToken, (req, res) => {
 });
 
 app.put('/admin/formations/:id/accept', verifyToken, (req, res) => {
-    const userId = req.id; // L'ID de l'utilisateur connecté (fourni par verifyToken)
+    const userId = req.id;
 
-    // 1. VÉRIFICATION EN BASE DE DONNÉES
-    db.execute("SELECT role FROM Utilisateur WHERE id = ?", [userId], (err, users) => {
-        if (err) return res.status(500).json({ error: "Erreur serveur lors de la vérification." });
+    db.execute("SELECT isAdmin FROM users WHERE id = ?", [userId], (err, users) => {
+        if (err) {
+            console.error("Erreur vérification admin :", err);
+            return res.status(500).json({ error: "Erreur serveur." });
+        }
         
-        // Si l'utilisateur n'existe pas ou n'est pas admin, on bloque !
-        if (users.length === 0 || users[0].role !== 'admin') {
+        // On vérifie si l'utilisateur existe ET si son isAdmin est égal à 1
+        if (users.length === 0 || users[0].isAdmin !== 1) {
             return res.status(403).json({ error: "Accès refusé. Réservé aux administrateurs." });
         }
 
-        // 2. SI C'EST UN ADMIN, ON VALIDE LA FORMATION
         const formationId = req.params.id;
         const query = "UPDATE Formation SET statut = 'validee' WHERE id = ?";
         
         db.execute(query, [formationId], (err, results) => {
-            if (err) return res.status(500).json({ error: "Erreur lors de la validation." });
+            if (err) {
+                console.error("Erreur SQL validation :", err);
+                return res.status(500).json({ error: "Erreur lors de la validation." });
+            }
             res.status(200).json({ message: "Formation validée et publiée au catalogue !" });
         });
     });
@@ -661,22 +665,29 @@ app.put('/admin/formations/:id/accept', verifyToken, (req, res) => {
 app.delete('/admin/formations/:id/reject', verifyToken, (req, res) => {
     const userId = req.id;
 
-    // 1. VÉRIFICATION EN BASE DE DONNÉES
-    db.execute("SELECT isAdmin FROM Users WHERE id = ?", [userId], (err, users) => {
-        if (err) return res.status(500).json({ error: "Erreur serveur lors de la vérification." });
+    db.execute("SELECT isAdmin FROM users WHERE id = ?", [userId], (err, users) => {
+        if (err) {
+            console.error("Erreur vérification admin :", err);
+            return res.status(500).json({ error: "Erreur serveur." });
+        }
         
-        if (users.length === 0 || users[0].role !== 'admin') {
+        if (users.length === 0 || users[0].isAdmin !== 1) {
             return res.status(403).json({ error: "Accès refusé. Réservé aux administrateurs." });
         }
 
-        // 2. SI C'EST UN ADMIN, ON SUPPRIME LA FORMATION
         const formationId = req.params.id;
 
         db.execute("DELETE FROM Session WHERE Id_Formation = ?", [formationId], (errS) => {
-            if (errS) return res.status(500).json({ error: "Erreur suppression sessions." });
+            if (errS) {
+                console.error("Erreur suppression session :", errS);
+                return res.status(500).json({ error: "Erreur suppression sessions." });
+            }
             
             db.execute("DELETE FROM Formation WHERE id = ?", [formationId], (errF) => {
-                if (errF) return res.status(500).json({ error: "Erreur suppression formation." });
+                if (errF) {
+                    console.error("Erreur suppression formation :", errF);
+                    return res.status(500).json({ error: "Erreur suppression formation." });
+                }
                 res.status(200).json({ message: "Formation refusée et supprimée." });
             });
         });
