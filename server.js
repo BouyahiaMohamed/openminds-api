@@ -1001,7 +1001,7 @@ app.post('/api/generate-image', async (req, res) => {
     const { prompt } = req.body;
     try {
         const response = await fetch(
-            'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell',
+            'https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0',
             {
                 method: 'POST',
                 headers: {
