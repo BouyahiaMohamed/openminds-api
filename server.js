@@ -843,7 +843,60 @@ app.get('/api/admin/certifications-attente', verifyToken, (req, res) => {
         res.json(dataFormatee);
     });
 });
+// ==========================================
+// ROUTE : RÉCUPÉRER LE BADGE D'UNE FORMATION SPÉCIFIQUE
+// ==========================================
+app.get('/formations/:id/badge', verifyToken, (req, res) => {
+    const formationId = req.params.id;
+    console.log(`🔍 [API] Requête badge pour formation ID: ${formationId}`);
 
+    const query = `SELECT id, nomBadge, URLImage FROM Badges WHERE Id_Formation = ?`;
+
+    db.execute(query, [formationId], (err, results) => {
+        if (err) {
+            console.error("❌ [API] Erreur SQL :", err);
+            return res.status(500).json({ error: "Erreur SQL" });
+        }
+
+        if (results.length === 0) {
+            console.warn(`⚠️ [API] Aucun badge en BDD pour l'ID ${formationId}`);
+            return res.status(404).json({ error: "Pas de badge" });
+        }
+
+        console.log("✅ [API] Badge envoyé :", results[0]);
+        res.status(200).json(results[0]);
+    });
+});
+// ==========================================
+// ROUTE : ATTRIBUER UN BADGE À UN UTILISATEUR
+// ==========================================
+app.post('/my-badges/claim', verifyToken, (req, res) => {
+    const userId = req.id; // Récupéré du token
+    const { badgeId } = req.body;
+
+    if (!badgeId) {
+        return res.status(400).json({ error: "ID du badge manquant." });
+    }
+
+    // INSERT IGNORE évite les doublons si l'utilisateur revient sur la page
+    const query = `
+        INSERT IGNORE INTO Possede (Id_User, Id_Badges, DateObtention) 
+        VALUES (?, ?, NOW())
+    `;
+
+    db.execute(query, [userId, badgeId], (err, result) => {
+        if (err) {
+            console.error("❌ Erreur SQL Claim Badge :", err);
+            return res.status(500).json({ error: "Erreur lors de l'enregistrement du badge." });
+        }
+
+        if (result.affectedRows === 0) {
+            return res.status(200).json({ message: "Badge déjà possédé." });
+        }
+
+        res.status(201).json({ message: "Badge obtenu avec succès !" });
+    });
+});
 
 const PORT = 3000;
 app.listen(PORT, () => {
