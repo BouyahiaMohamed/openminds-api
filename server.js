@@ -576,6 +576,7 @@ app.get('/formations/:id', verifyToken, (req, res) => {
             f.Description,
             f.isOnline,
             f.Adresse, 
+            f.Image, -- <--- IL MANQUAIT CETTE LIGNE !
             s.DateHeure,
             s.nbPlaces,
             (s.nbPlaces - (SELECT COUNT(*) FROM Participe p WHERE p.Id_Session = s.id)) as nbPlacesRestantes,
