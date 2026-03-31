@@ -214,53 +214,41 @@ app.get('/formations', verifyToken, (req, res) => {
 // ROUTE : AJOUTER / PROPOSER UNE FORMATION (AVEC IMAGE)
 // ==========================================
 app.post('/formations', verifyToken, upload.single('image'), async (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs, generatedImage } = req.body;
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
     
-    let imageFinale = null;
-    if (req.file) {
-        imageFinale = `/uploads/formations/${req.file.filename}`;
-    } else if (generatedImage && generatedImage !== 'null') {
-        imageFinale = generatedImage;
-    } else {
-        imageFinale = `https://picsum.photos/seed/${Date.now()}/300/300`;
-    }
+    let imageFinale = req.file ? `/uploads/formations/${req.file.filename}` : (generatedImage !== 'null' ? generatedImage : `https://picsum.photos/seed/${Date.now()}/300/300`);
 
     try {
         const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
-        const queryForm = `
-        INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image, Formateurs) 
-        VALUES (?, ?, ?, ?, 'en_attente', ?, ?, ?) -- Ajout de Formateurs ici
-    `;
+        // 1. Insertion de la formation
+        const queryForm = `INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) VALUES (?, ?, ?, ?, 'en_attente', ?, ?)`;
         
-        db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale, Formateurs], (err, result) => {
-            if (err) {
-                console.error("Erreur BDD Insertion Formation :", err);
-                return res.status(500).json({ error: "Erreur SQL : " + err.sqlMessage });
-            }
+        db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale], (err, result) => {
+            if (err) return res.status(500).json({ error: err.sqlMessage });
 
             const formationId = result.insertId;
 
-            if (DateHeure && DateHeure !== 'null' && DateHeure !== '') {
-                const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
-                const places = parseInt(nbPlacesRestantes) || 0;
-
-                const querySess = `
-                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
-                    VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
-                `;
+            // 2. Création de la Session
+            if (DateHeure && DateHeure !== 'null') {
+                const querySess = `INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)`;
                 
-                db.execute(querySess, [formationId, formattedDate, places, places, Adresse], (errSess) => {
-                    if (errSess) console.error("Erreur BDD Insertion Session :", errSess.sqlMessage);
+                db.execute(querySess, [formationId, DateHeure, nbPlacesRestantes, nbPlacesRestantes, Adresse], (errSess, resSess) => {
+                    if (errSess) return;
+
+                    const sessionId = resSess.insertId;
+
+                    // 3. LIAISON FORMATEUR (C'est ici que ça se joue !)
+                    // On lie l'utilisateur actuel (req.id) à cette session/formation
+                    const queryLink = `INSERT INTO APourFormateur (id_User, id_Session) VALUES (?, ?)`;
+                    db.execute(queryLink, [req.id, sessionId], (errLink) => {
+                        if (errLink) console.error("Erreur liaison formateur:", errLink);
+                    });
                 });
             }
-
-            res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
+            res.status(201).json({ message: "Succès !" });
         });
-    } catch (error) {
-        console.error("Crash Route POST /formations :", error);
-        res.status(500).json({ error: "Erreur interne du serveur." });
-    }
+    } catch (error) { res.status(500).json({ error: "Erreur serveur" }); }
 });
 
 app.get('/likes', verifyToken, (req, res) => {
@@ -576,7 +564,7 @@ app.get('/formations/:id', verifyToken, (req, res) => {
             f.Description,
             f.isOnline,
             f.Adresse, 
-            f.Image, -- <--- IL MANQUAIT CETTE LIGNE !
+            f.Image,
             s.DateHeure,
             s.nbPlaces,
             (s.nbPlaces - (SELECT COUNT(*) FROM Participe p WHERE p.Id_Session = s.id)) as nbPlacesRestantes,
