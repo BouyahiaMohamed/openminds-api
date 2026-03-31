@@ -153,6 +153,7 @@ app.get('/my-formations', verifyToken, (req, res) => {
             F.id AS id_formation,
             F.Titre,
             F.isOnline,
+            F.Image,
             S.DateHeure,
             S.Duree,
             S.Statut,
@@ -316,6 +317,7 @@ app.get('/my-favorites', verifyToken, (req, res) => {
             F.Titre,
             F.Description,
             F.isOnline,
+            F.Image,
             (SELECT MIN(DateHeure) FROM Session s WHERE s.Id_Formation = F.id) as DateHeure
         FROM Like_ L
         JOIN Formation F ON L.Id_Formation = F.id
