@@ -244,7 +244,7 @@ app.post('/formations', verifyToken, upload.single('image'), async (req, res) =>
 
                 const querySess = `
                     INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
-                    VALUES (?, ?, 90, ?, ?, 'À Venir', ?)
+                    VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
                 `;
                 
                 db.execute(querySess, [formationId, formattedDate, places, places, Adresse], (errSess) => {
