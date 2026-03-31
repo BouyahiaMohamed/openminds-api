@@ -211,15 +211,21 @@ app.get('/formations', verifyToken, (req, res) => {
 });
 
 // ==========================================
-// ROUTE : AJOUTER / PROPOSER UNE FORMATION (AVEC IMAGE)
+// ROUTE : AJOUTER / PROPOSER UNE FORMATION
 // ==========================================
 app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
-    
-    // 1. On s'assure que req.id existe (sinon on met null pour éviter le crash)
-    const userId = req.id || null;
+    // 1. Extraction et sécurisation des données du corps de la requête
+    // On utilise || null ou || '' pour s'assurer qu'aucune variable n'est "undefined"
+    const Titre = req.body.Titre || null;
+    const Description = req.body.Description || '';
+    const isOnline = req.body.isOnline;
+    const Adresse = req.body.Adresse || '';
+    const DateHeure = req.body.DateHeure || null;
+    const nbPlacesRestantes = req.body.nbPlacesRestantes || 0;
+    const generatedImage = req.body.generatedImage || null;
+    const userId = req.id || null; // Vient du token
 
-    // 2. Gestion de l'image
+    // 2. Gestion de l'image (Upload > IA > Par défaut)
     let imageFinale = null;
     if (req.file) {
         imageFinale = `/uploads/formations/${req.file.filename}`;
@@ -229,46 +235,66 @@ app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
         imageFinale = `https://picsum.photos/seed/${Date.now()}/300/300`;
     }
 
-    const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
+    // Convertir isOnline en entier (0 ou 1)
+    const isOnlineInt = (isOnline === '1' || isOnline === 'true' || isOnline === true) ? 1 : 0;
 
+    // 3. Préparation de la requête SQL (selon tes colonnes Id_User, URLVideo, Id_AssociationsPartenaires)
     const queryForm = `
         INSERT INTO Formation 
         (Titre, Description, isOnline, URLVideo, Id_AssociationsPartenaires, Id_User, Adresse, statut, Image) 
         VALUES (?, ?, ?, NULL, NULL, ?, ?, 'en_attente', ?)
     `;
     
-    // FIX : On force toutes les valeurs à NULL ou chaîne vide si elles sont undefined
+    // 4. Tableau des paramètres (L'ORDRE DOIT ÊTRE IDENTIQUE AUX '?' CI-DESSUS)
+    // On s'assure qu'absolument RIEN n'est undefined ici
     const paramsForm = [
-        Titre || null,           // Si Titre est undefined -> null
-        Description || '',       // Si Description est undefined -> ''
-        isOnlineInt,             // Toujours 0 ou 1
-        userId,                  // ID de l'utilisateur
-        Adresse || '',           // Si Adresse est undefined -> ''
-        imageFinale || null      // Si image est undefined -> null
+        Titre,           // Titre
+        Description,     // Description
+        isOnlineInt,     // isOnline
+        userId,          // Id_User
+        Adresse,         // Adresse
+        imageFinale      // Image
     ];
+
+    console.log("DEBUG: Tentative d'insertion avec paramètres :", paramsForm);
 
     db.execute(queryForm, paramsForm, (err, result) => {
         if (err) {
-            console.error("❌ ERREUR SQL :", err.sqlMessage || err);
-            return res.status(500).json({ error: "Erreur BDD", details: err.sqlMessage });
+            console.error("❌ ERREUR SQL FORMATION :", err.sqlMessage || err);
+            return res.status(500).json({ 
+                error: "Erreur lors de l'insertion en base de données.",
+                details: err.sqlMessage 
+            });
         }
 
         const formationId = result.insertId;
 
-        // Insertion Session (si date valide)
+        // 5. Insertion dans la table Session (si une date valide est fournie)
         if (DateHeure && !DateHeure.includes('undefined') && DateHeure.length > 10) {
             const places = parseInt(nbPlacesRestantes) || 0;
             const querySess = `
                 INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
                 VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
             `;
-            // On applique la même sécurité ici pour l'Adresse
-            db.execute(querySess, [formationId, DateHeure, places, places, Adresse || 'En ligne'], (errSess) => {
-                if (errSess) console.error("⚠️ ERREUR SESSION :", errSess.sqlMessage);
+            
+            // Sécurisation des paramètres de session
+            const paramsSess = [
+                formationId, 
+                DateHeure, 
+                places, 
+                places, 
+                Adresse || 'En ligne'
+            ];
+
+            db.execute(querySess, paramsSess, (errSess) => {
+                if (errSess) console.error("⚠️ ERREUR SQL SESSION :", errSess.sqlMessage);
             });
         }
 
-        res.status(201).json({ message: "Formation créée avec succès !", id: formationId });
+        res.status(201).json({ 
+            message: "Formation créée avec succès !", 
+            id: formationId 
+        });
     });
 });
 
