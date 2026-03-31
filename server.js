@@ -155,7 +155,36 @@ app.get('/my-formations', verifyToken, (req, res) => {
     });
 });
 
+app.get('/formations', verifyToken, (req, res) => {
+    const query = `
+        SELECT
+            f.id,
+            f.Titre,
+            f.Description,
+            f.isOnline,
+            (SELECT MIN(DateHeure)
+             FROM Session s
+             WHERE s.Id_Formation = f.id
+             AND s.DateHeure >= NOW()
+             AND s.nbPlacesRestantes > 0) as DateHeureRaw
+        FROM Formation f
+        WHERE f.statut = 'validee' AND (f.isOnline = 1
+           OR EXISTS (
+               SELECT 1 FROM Session s
+               WHERE s.Id_Formation = f.id
+                 AND s.DateHeure >= NOW()
+                 AND s.nbPlacesRestantes > 0
+           ))
+    `;
 
+    db.execute(query, [], (err, results) => {
+        if (err) {
+            console.error("Erreur SQL Catalogue :", err);
+            return res.status(500).json({ error: 'Erreur lors de la récupération du catalogue.' });
+        }
+        res.status(200).json(results);
+    });
+});
 
 // ==========================================
 // ROUTE : AJOUTER / PROPOSER UNE FORMATION
