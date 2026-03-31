@@ -155,7 +155,13 @@ app.get('/my-formations', verifyToken, (req, res) => {
     });
 });
 
+
+
+// ==========================================
+// ROUTE 4 : RÉCUPÉRER LE CATALOGUE DE FORMATIONS (Filtre places & dates futures)
+// ==========================================
 app.get('/formations', verifyToken, (req, res) => {
+    // ⚠️ MODIFICATION : On ne sélectionne que les formations validées ('validee')
     const query = `
         SELECT
             f.id,
@@ -193,11 +199,13 @@ app.post('/formations', verifyToken, async (req, res) => {
     const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs } = req.body;
     
     try {
+        // 👇 AJOUT DE Id_User ICI
         const queryForm = `
             INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User) 
             VALUES (?, ?, ?, ?, 'en_attente', ?)
         `;
-   
+        
+        // 👇 AJOUT DE req.id À LA FIN DU TABLEAU POUR L'INSERER DANS LA BDD
         db.execute(queryForm, [Titre, Description, isOnline, Adresse, req.id], (err, result) => {
             if (err) {
                 console.error("Erreur BDD Insertion Formation :", err);
@@ -206,7 +214,9 @@ app.post('/formations', verifyToken, async (req, res) => {
 
             const formationId = result.insertId;
 
+            // 2. S'il y a une date, on crée la session associée
             if (DateHeure) {
+                // Fix MySQL : on garantit le format YYYY-MM-DD HH:MM:SS
                 const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
                 const places = parseInt(nbPlacesRestantes) || 0;
 
@@ -222,48 +232,11 @@ app.post('/formations', verifyToken, async (req, res) => {
                 });
             }
 
+            // 3. Succès !
             res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
         });
     } catch (error) {
         console.error("Crash Route POST /formations :", error);
-        res.status(500).json({ error: "Erreur interne du serveur." });
-    }
-});
-
-app.post('/formations', verifyToken, async (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs } = req.body;
-    
-    try {
-        const queryForm = `
-            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut) 
-            VALUES (?, ?, ?, ?, 'en_attente')
-        `;
-        
-        db.execute(queryForm, [Titre, Description, isOnline, Adresse], (err, result) => {
-            if (err) {
-                // 👇 C'EST ICI : On renvoie la vraie erreur SQL pour comprendre le blocage
-                return res.status(500).json({ error: "Erreur SQL : " + err.sqlMessage });
-            }
-
-            const formationId = result.insertId;
-
-            if (DateHeure) {
-                const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
-                const places = parseInt(nbPlacesRestantes) || 0;
-
-                const querySess = `
-                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
-                    VALUES (?, ?, 90, ?, ?, 'À Venir', ?)
-                `;
-                
-                db.execute(querySess, [formationId, formattedDate, places, places, Adresse], (errSess) => {
-                    if (errSess) console.error("Erreur Insertion Session :", errSess.sqlMessage);
-                });
-            }
-
-            res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
-        });
-    } catch (error) {
         res.status(500).json({ error: "Erreur interne du serveur." });
     }
 });
