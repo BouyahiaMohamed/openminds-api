@@ -214,87 +214,54 @@ app.get('/formations', verifyToken, (req, res) => {
 // ROUTE : AJOUTER / PROPOSER UNE FORMATION
 // ==========================================
 app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
-    // 1. Extraction et sécurisation des données du corps de la requête
-    // On utilise || null ou || '' pour s'assurer qu'aucune variable n'est "undefined"
-    const Titre = req.body.Titre || null;
-    const Description = req.body.Description || '';
-    const isOnline = req.body.isOnline;
-    const Adresse = req.body.Adresse || '';
-    const DateHeure = req.body.DateHeure || null;
-    const nbPlacesRestantes = req.body.nbPlacesRestantes || 0;
-    const generatedImage = req.body.generatedImage || null;
-    const userId = req.id || null; // Vient du token
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
+    const userId = req.id;
 
-    // 2. Gestion de l'image (Upload > IA > Par défaut)
-    let imageFinale = null;
-    if (req.file) {
-        imageFinale = `/uploads/formations/${req.file.filename}`;
-    } else if (generatedImage && generatedImage !== 'null' && generatedImage !== '') {
-        imageFinale = generatedImage;
-    } else {
-        imageFinale = `https://picsum.photos/seed/${Date.now()}/300/300`;
-    }
+    // On récupère le quiz (envoyé en string JSON dans le FormData)
+    let quizData = [];
+    try {
+        if (req.body.quiz) quizData = JSON.parse(req.body.quiz);
+    } catch (e) { console.error("Erreur parse quiz", e); }
 
-    // Convertir isOnline en entier (0 ou 1)
-    const isOnlineInt = (isOnline === '1' || isOnline === 'true' || isOnline === true) ? 1 : 0;
+    let imageFinale = req.file ? `/uploads/formations/${req.file.filename}` : (generatedImage || `https://picsum.photos/seed/${Date.now()}/300/300`);
+    const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
-    // 3. Préparation de la requête SQL (selon tes colonnes Id_User, URLVideo, Id_AssociationsPartenaires)
-    const queryForm = `
-        INSERT INTO Formation 
-        (Titre, Description, isOnline, URLVideo, Id_AssociationsPartenaires, Id_User, Adresse, statut, Image) 
-        VALUES (?, ?, ?, NULL, NULL, ?, ?, 'en_attente', ?)
-    `;
-    
-    // 4. Tableau des paramètres (L'ORDRE DOIT ÊTRE IDENTIQUE AUX '?' CI-DESSUS)
-    // On s'assure qu'absolument RIEN n'est undefined ici
-    const paramsForm = [
-        Titre,           // Titre
-        Description,     // Description
-        isOnlineInt,     // isOnline
-        userId,          // Id_User
-        Adresse,         // Adresse
-        imageFinale      // Image
-    ];
+    // 1. Insertion de la Formation
+    const queryForm = `INSERT INTO Formation (Titre, Description, isOnline, Id_User, Adresse, statut, Image) VALUES (?, ?, ?, ?, ?, 'en_attente', ?)`;
 
-    console.log("DEBUG: Tentative d'insertion avec paramètres :", paramsForm);
-
-    db.execute(queryForm, paramsForm, (err, result) => {
-        if (err) {
-            console.error("❌ ERREUR SQL FORMATION :", err.sqlMessage || err);
-            return res.status(500).json({ 
-                error: "Erreur lors de l'insertion en base de données.",
-                details: err.sqlMessage 
-            });
-        }
+    db.execute(queryForm, [Titre, Description, isOnlineInt, userId, Adresse, imageFinale], (err, result) => {
+        if (err) return res.status(500).json({ error: err.sqlMessage });
 
         const formationId = result.insertId;
 
-        // 5. Insertion dans la table Session (si une date valide est fournie)
-        if (DateHeure && !DateHeure.includes('undefined') && DateHeure.length > 10) {
+        // 2. Insertion de la Session
+        if (DateHeure && DateHeure.length > 10) {
             const places = parseInt(nbPlacesRestantes) || 0;
-            const querySess = `
-                INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
-                VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
-            `;
-            
-            // Sécurisation des paramètres de session
-            const paramsSess = [
-                formationId, 
-                DateHeure, 
-                places, 
-                places, 
-                Adresse || 'En ligne'
-            ];
+            const querySess = `INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)`;
+            db.execute(querySess, [formationId, DateHeure, places, places, Adresse || 'En ligne']);
+        }
 
-            db.execute(querySess, paramsSess, (errSess) => {
-                if (errSess) console.error("⚠️ ERREUR SQL SESSION :", errSess.sqlMessage);
+        // 3. Création automatique d'un Badge (obligatoire pour que le succès du quiz fonctionne)
+        const queryBadge = `INSERT INTO Badges (nomBadge, URLImage, Id_Formation) VALUES (?, ?, ?)`;
+        db.execute(queryBadge, [`Badge ${Titre}`, '/badges/random.png', formationId]);
+
+        // 4. Insertion du Quiz (Questions et Réponses)
+        if (quizData.length > 0) {
+            quizData.forEach(q => {
+                const queryQ = `INSERT INTO Question (textQuestion, Id_Formation) VALUES (?, ?)`;
+                db.execute(queryQ, [q.text, formationId], (errQ, resQ) => {
+                    if (!errQ) {
+                        const questionId = resQ.insertId;
+                        q.reponses.forEach(r => {
+                            const queryR = `INSERT INTO Reponse (isCorrect, textReponse, Id_Question) VALUES (?, ?, ?)`;
+                            db.execute(queryR, [r.isCorrect ? 1 : 0, r.text, questionId]);
+                        });
+                    }
+                });
             });
         }
 
-        res.status(201).json({ 
-            message: "Formation créée avec succès !", 
-            id: formationId 
-        });
+        res.status(201).json({ message: "Formation et Quiz créés !", id: formationId });
     });
 });
 
