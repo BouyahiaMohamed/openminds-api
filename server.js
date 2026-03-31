@@ -213,9 +213,11 @@ app.get('/formations', verifyToken, (req, res) => {
 // ==========================================
 // ROUTE : AJOUTER / PROPOSER UNE FORMATION (AVEC IMAGE)
 // ==========================================
-app.post('/formations', verifyToken, upload.single('image'), async (req, res) => {
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs, generatedImage } = req.body;
+app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
     
+    if (!req.id) return res.status(401).json({ error: "Utilisateur non connecté." });
+
     let imageFinale = null;
     if (req.file) {
         imageFinale = `/uploads/formations/${req.file.filename}`;
@@ -225,42 +227,35 @@ app.post('/formations', verifyToken, upload.single('image'), async (req, res) =>
         imageFinale = `https://picsum.photos/seed/${Date.now()}/300/300`;
     }
 
-    try {
-        const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
+    const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
-        const queryForm = `
-            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
-            VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
-        `;
-        
-        db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale], (err, result) => {
-            if (err) {
-                console.error("Erreur BDD Insertion Formation :", err);
-                return res.status(500).json({ error: "Erreur SQL : " + err.sqlMessage });
-            }
+    const queryForm = `
+        INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
+        VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
+    `;
+    
+    db.execute(queryForm, [Titre, Description || '', isOnlineInt, Adresse || '', req.id, imageFinale], (err, result) => {
+        if (err) {
+            console.error("❌ ERREUR SQL FORMATION :", err);
+            return res.status(500).json({ error: "Erreur BDD", details: err.sqlMessage });
+        }
 
-            const formationId = result.insertId;
+        const formationId = result.insertId;
 
-            if (DateHeure && DateHeure !== 'null' && DateHeure !== '') {
-                const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
-                const places = parseInt(nbPlacesRestantes) || 0;
+        if (DateHeure && !DateHeure.includes('undefined') && DateHeure.length > 10) {
+            const places = parseInt(nbPlacesRestantes) || 0;
+            const querySess = `
+                INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
+                VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
+            `;
+            
+            db.execute(querySess, [formationId, DateHeure, places, places, Adresse || 'En ligne'], (errSess) => {
+                if (errSess) console.error("⚠️ ERREUR SQL SESSION :", errSess.sqlMessage);
+            });
+        }
 
-                const querySess = `
-                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
-                    VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
-                `;
-                
-                db.execute(querySess, [formationId, formattedDate, places, places, Adresse], (errSess) => {
-                    if (errSess) console.error("Erreur BDD Insertion Session :", errSess.sqlMessage);
-                });
-            }
-
-            res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
-        });
-    } catch (error) {
-        console.error("Crash Route POST /formations :", error);
-        res.status(500).json({ error: "Erreur interne du serveur." });
-    }
+        res.status(201).json({ message: "Formation créée !", id: formationId });
+    });
 });
 
 app.get('/likes', verifyToken, (req, res) => {
