@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const { exec } = require('child_process');
 const multer = require('multer');
 const fs = require('fs');
+const path = require('path');
 
 const SECRET_KEY = "OPENMINDS_SUPER_SECRET_2026";
 
@@ -19,8 +20,8 @@ app.use('/uploads/formations', express.static(path.join(__dirname, 'public/forma
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const dir = path.join(__dirname, 'public/formations');
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); // Crée le dossier s'il n'existe pas
+        const dir = path.join(__dirname, 'uploads/formations');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         cb(null, dir);
     },
     filename: (req, file, cb) => {
@@ -211,10 +212,8 @@ app.get('/formations', verifyToken, (req, res) => {
 // ROUTE : AJOUTER / PROPOSER UNE FORMATION (AVEC IMAGE)
 // ==========================================
 app.post('/formations', verifyToken, upload.single('image'), async (req, res) => {
-    // Avec FormData, toutes les valeurs arrivent sous forme de texte (String)
     const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs, generatedImage } = req.body;
     
-    // 1. Gestion de l'image (Upload vs Générée aléatoirement)
     let imageFinale = null;
     if (req.file) {
         imageFinale = `/uploads/formations/${req.file.filename}`;
@@ -225,10 +224,8 @@ app.post('/formations', verifyToken, upload.single('image'), async (req, res) =>
     }
 
     try {
-        // 2. Conversion sécurisée pour MySQL
         const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
-        // 3. Insertion de la formation avec la colonne "Image"
         const queryForm = `
             INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
             VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
@@ -242,7 +239,6 @@ app.post('/formations', verifyToken, upload.single('image'), async (req, res) =>
 
             const formationId = result.insertId;
 
-            // 4. Création de la session si une date valide est fournie
             if (DateHeure && DateHeure !== 'null' && DateHeure !== '') {
                 const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
                 const places = parseInt(nbPlacesRestantes) || 0;
@@ -253,13 +249,10 @@ app.post('/formations', verifyToken, upload.single('image'), async (req, res) =>
                 `;
                 
                 db.execute(querySess, [formationId, formattedDate, places, places, Adresse], (errSess) => {
-                    if (errSess) {
-                        console.error("Erreur BDD Insertion Session :", errSess.sqlMessage);
-                    }
+                    if (errSess) console.error("Erreur BDD Insertion Session :", errSess.sqlMessage);
                 });
             }
 
-            // 5. Succès !
             res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
         });
     } catch (error) {
