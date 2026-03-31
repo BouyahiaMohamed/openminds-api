@@ -757,73 +757,139 @@ const verifyAdmin = (req, res, next) => {
 // ==========================================
 // ROUTE ADMIN : DASHBOARD & STATISTIQUES (US17)
 // ==========================================
-app.get('/admin/stats', verifyToken, async (req, res) => {
-    if (!req.isAdmin) {
-        return res.status(403).json({ error: "Accès refusé. Espace réservé aux administrateurs." });
+app.get('/admin/stats', verifyToken, verifyAdmin, (req, res) => {
+    const { period } = req.query;
+ 
+    // Calcul de la date de début selon la période
+    let dateFilter = '';
+    switch (period) {
+        case 'Semaine':    dateFilter = 'INTERVAL 7 DAY';   break;
+        case 'Trimestre':  dateFilter = 'INTERVAL 3 MONTH'; break;
+        case 'Année':      dateFilter = 'INTERVAL 1 YEAR';  break;
+        default:           dateFilter = 'INTERVAL 1 MONTH'; // Mois
     }
-
-    const period = req.query.period || 'Année'; 
-
-    let dateConditionSession = "1=1";
-    let dateConditionQuiz = "1=1";
-
-    if (period === 'Ce mois') {
-        dateConditionSession = "MONTH(DateHeure) = MONTH(CURRENT_DATE()) AND YEAR(DateHeure) = YEAR(CURRENT_DATE())";
-        dateConditionQuiz = "MONTH(DatePassage) = MONTH(CURRENT_DATE()) AND YEAR(DatePassage) = YEAR(CURRENT_DATE())";
-    } else if (period === 'Trimestre') {
-        dateConditionSession = "QUARTER(DateHeure) = QUARTER(CURRENT_DATE()) AND YEAR(DateHeure) = YEAR(CURRENT_DATE())";
-        dateConditionQuiz = "QUARTER(DatePassage) = QUARTER(CURRENT_DATE()) AND YEAR(DatePassage) = YEAR(CURRENT_DATE())";
-    } else if (period === 'Semaine') {
-        dateConditionSession = "YEARWEEK(DateHeure, 1) = YEARWEEK(CURRENT_DATE(), 1)";
-        dateConditionQuiz = "YEARWEEK(DatePassage, 1) = YEARWEEK(CURRENT_DATE(), 1)";
-    }
-
-    try {
-        const queryAsync = (sql) => new Promise((resolve, reject) => {
-            db.execute(sql, [], (err, results) => err ? reject(err) : resolve(results));
-        });
-
-        const inscrits = await queryAsync(`
-            SELECT COUNT(*) as total
-            FROM Participe P
-            LEFT JOIN Session S ON P.Id_Session = S.id
-            WHERE S.id IS NULL OR ${dateConditionSession}
-        `);
-
-        const reussite = await queryAsync(`
-            SELECT IFNULL(ROUND((SUM(IsSuccess) / COUNT(*)) * 100), 0) as taux
-            FROM FaitLeQuiz
-            WHERE ${dateConditionQuiz}
-        `);
-
-        const sessions = await queryAsync(`
-            SELECT COUNT(*) as total FROM Session WHERE ${dateConditionSession}
-        `);
-
-        const chartData = await queryAsync(`
-            SELECT MONTH(S.DateHeure) as mois, COUNT(P.Id_User) as count
-            FROM Participe P
-            JOIN Session S ON P.Id_Session = S.id
-            WHERE YEAR(S.DateHeure) = YEAR(CURRENT_DATE())
-            GROUP BY MONTH(S.DateHeure)
-            ORDER BY mois ASC
-        `);
-
-        res.status(200).json({
+ 
+    // ── KPI 1 : Total inscrits sur la période ──────────────────────────────────
+    const queryInscrits = `
+        SELECT COUNT(*) AS inscrits
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), ${dateFilter})
+    `;
+ 
+    // ── KPI 2 : Taux de complétion (Progression = 100) ─────────────────────────
+    const queryTaux = `
+        SELECT
+            ROUND(
+                COUNT(CASE WHEN Progression >= 100 THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0)
+            , 0) AS taux
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), ${dateFilter})
+    `;
+ 
+    // ── KPI 3 : Sessions actives sur la période ────────────────────────────────
+    const querySessions = `
+        SELECT COUNT(*) AS sessions
+        FROM Session
+        WHERE Statut = 'À Venir'
+          AND DateHeure >= DATE_SUB(NOW(), ${dateFilter})
+    `;
+ 
+    // ── KPI 4 : Formations en attente de modération ────────────────────────────
+    const queryPending = `
+        SELECT COUNT(*) AS pending
+        FROM Formation
+        WHERE statut = 'en_attente'
+    `;
+ 
+    // ── GRAPHIQUE : Inscriptions + Complétions + En cours par mois/semaine ─────
+    const queryChart = `
+        SELECT
+            MONTH(DateInscription) AS mois,
+            YEAR(DateInscription)  AS annee,
+            COUNT(*) AS inscrits,
+            COUNT(CASE WHEN Progression >= 100 THEN 1 END) AS completions,
+            COUNT(CASE WHEN Progression > 0 AND Progression < 100 THEN 1 END) AS en_cours
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), ${dateFilter})
+        GROUP BY YEAR(DateInscription), MONTH(DateInscription)
+        ORDER BY annee ASC, mois ASC
+    `;
+ 
+    // ── TOP FORMATIONS ─────────────────────────────────────────────────────────
+    const queryTop = `
+        SELECT
+            F.Titre,
+            COUNT(P.Id_User) AS inscrits,
+            ROUND(
+                COUNT(CASE WHEN P.Progression >= 100 THEN 1 END) * 100.0 / NULLIF(COUNT(P.Id_User), 0)
+            , 0) AS taux
+        FROM Formation F
+        LEFT JOIN Participe P ON P.Id_Formation = F.id
+        WHERE F.statut = 'validee'
+          AND P.DateInscription >= DATE_SUB(NOW(), ${dateFilter})
+        GROUP BY F.id, F.Titre
+        ORDER BY inscrits DESC
+        LIMIT 5
+    `;
+ 
+    // ── INSCRIPTIONS PAR JOUR (7 derniers jours) ───────────────────────────────
+    const queryBar = `
+        SELECT
+            DAYOFWEEK(DateInscription) AS jour,
+            COUNT(*) AS count
+        FROM Participe
+        WHERE DateInscription >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        GROUP BY DAYOFWEEK(DateInscription)
+        ORDER BY jour ASC
+    `;
+ 
+    // ── Exécution parallèle de toutes les requêtes ─────────────────────────────
+    Promise.all([
+        new Promise((resolve, reject) => db.execute(queryInscrits, [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(queryTaux,     [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(querySessions, [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(queryPending,  [], (err, r) => err ? reject(err) : resolve(r[0]))),
+        new Promise((resolve, reject) => db.execute(queryChart,    [], (err, r) => err ? reject(err) : resolve(r))),
+        new Promise((resolve, reject) => db.execute(queryTop,      [], (err, r) => err ? reject(err) : resolve(r))),
+        new Promise((resolve, reject) => db.execute(queryBar,      [], (err, r) => err ? reject(err) : resolve(r))),
+    ])
+    .then(([inscrits, taux, sessions, pending, chart, top, bar]) => {
+ 
+        // Formater le graphique linéaire
+        const moisNoms = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
+        const chartFormatted = {
+            labels:      chart.map(r => moisNoms[r.mois - 1]),
+            inscrits:    chart.map(r => r.inscrits),
+            completions: chart.map(r => r.completions),
+            en_cours:    chart.map(r => r.en_cours),
+        };
+ 
+        // Formater le bar chart (7 jours, index 0=Dim ... 6=Sam)
+        const joursNoms = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+        const barMap = {};
+        bar.forEach(r => barMap[r.jour] = r.count);
+        const barFormatted = joursNoms.map((label, i) => ({
+            label,
+            count: barMap[i + 1] || 0
+        }));
+ 
+        res.json({
             kpis: {
-                inscrits: inscrits[0].total,
-                tauxReussite: reussite[0].taux,
-                nouvellesSessions: sessions[0].total
+                inscrits:  inscrits.inscrits  || 0,
+                taux:      taux.taux          || 0,
+                sessions:  sessions.sessions  || 0,
+                pending:   pending.pending    || 0,
             },
-            chart: chartData
+            chart:          chartFormatted,
+            topFormations:  top,
+            barJours:       barFormatted,
         });
-
-    } catch (error) {
-        console.error("Erreur Stats Admin :", error);
-        res.status(500).json({ error: "Erreur calcul des statistiques" });
-    }
+    })
+    .catch(err => {
+        console.error('Erreur stats admin:', err);
+        res.status(500).json({ error: 'Erreur lors du calcul des statistiques.' });
+    });
 });
-
 
 // ==========================================
 // ROUTE 6 : RÉCUPÉRER LES DEMANDES DE CERTIFICATIONS (ADMIN)
