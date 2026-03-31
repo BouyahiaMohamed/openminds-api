@@ -211,63 +211,56 @@ app.get('/formations', verifyToken, (req, res) => {
 });
 
 // ==========================================
-// ROUTE : AJOUTER UNE FORMATION (VERSION SÉCURISÉE)
+// ROUTE : AJOUTER / PROPOSER UNE FORMATION (AVEC IMAGE)
 // ==========================================
-app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
-    // On récupère les données proprement
-    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
+app.post('/formations', verifyToken, upload.single('image'), async (req, res) => {
+    const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, Formateurs, generatedImage } = req.body;
     
-    // Vérification de sécurité pour éviter le crash
-    if (!Titre || !req.id) {
-        return res.status(400).json({ error: "Le titre et l'utilisateur sont requis." });
-    }
-
-    // Gestion de l'image
     let imageFinale = null;
     if (req.file) {
         imageFinale = `/uploads/formations/${req.file.filename}`;
-    } else if (generatedImage && generatedImage !== 'null' && generatedImage !== '') {
+    } else if (generatedImage && generatedImage !== 'null') {
         imageFinale = generatedImage;
     } else {
         imageFinale = `https://picsum.photos/seed/${Date.now()}/300/300`;
     }
 
-    const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
+    try {
+        const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
-    // 1. INSERTION DANS LA TABLE 'Formation' 
-    // J'ai retiré 'Formateurs' car la colonne n'existe pas dans ta table
-    const queryForm = `
-        INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
-        VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
-    `;
-    
-    db.execute(queryForm, [Titre, Description || '', isOnlineInt, Adresse || '', req.id, imageFinale], (err, result) => {
-        if (err) {
-            console.error("❌ ERREUR SQL FORMATION :", err);
-            // On renvoie l'erreur SQL réelle pour que tu puisses la voir sur ton tel
-            return res.status(500).json({ error: "Erreur SQL Formation: " + (err.sqlMessage || err.code) });
-        }
+        const queryForm = `
+            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
+            VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
+        `;
+        
+        db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale], (err, result) => {
+            if (err) {
+                console.error("Erreur BDD Insertion Formation :", err);
+                return res.status(500).json({ error: "Erreur SQL : " + err.sqlMessage });
+            }
 
-        const formationId = result.insertId;
+            const formationId = result.insertId;
 
-        // 2. INSERTION DANS LA TABLE 'Session' (si une date est fournie)
-        // On vérifie que la date n'est pas "undefined" ou vide
-        if (DateHeure && !DateHeure.includes('undefined')) {
-            const places = parseInt(nbPlacesRestantes) || 0;
-            const querySess = `
-                INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
-                VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
-            `;
-            
-            db.execute(querySess, [formationId, DateHeure, places, places, Adresse || 'En ligne'], (errSess) => {
-                if (errSess) {
-                    console.error("⚠️ ERREUR SQL SESSION (ignorée) :", errSess.sqlMessage);
-                }
-            });
-        }
+            if (DateHeure && DateHeure !== 'null' && DateHeure !== '') {
+                const formattedDate = DateHeure.length <= 16 ? `${DateHeure}:00` : DateHeure;
+                const places = parseInt(nbPlacesRestantes) || 0;
 
-        res.status(201).json({ message: "Formation proposée avec succès !", id: formationId });
-    });
+                const querySess = `
+                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
+                    VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
+                `;
+                
+                db.execute(querySess, [formationId, formattedDate, places, places, Adresse], (errSess) => {
+                    if (errSess) console.error("Erreur BDD Insertion Session :", errSess.sqlMessage);
+                });
+            }
+
+            res.status(201).json({ message: "Proposition de formation envoyée avec succès !" });
+        });
+    } catch (error) {
+        console.error("Crash Route POST /formations :", error);
+        res.status(500).json({ error: "Erreur interne du serveur." });
+    }
 });
 
 app.get('/likes', verifyToken, (req, res) => {
