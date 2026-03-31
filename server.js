@@ -176,13 +176,13 @@ app.get('/my-formations', verifyToken, (req, res) => {
 // ROUTE 4 : RÉCUPÉRER LE CATALOGUE DE FORMATIONS (Filtre places & dates futures)
 // ==========================================
 app.get('/formations', verifyToken, (req, res) => {
-    // ⚠️ MODIFICATION : On ne sélectionne que les formations validées ('validee')
     const query = `
         SELECT
             f.id,
             f.Titre,
             f.Description,
             f.isOnline,
+            f.Image,
             (SELECT MIN(DateHeure)
              FROM Session s
              WHERE s.Id_Formation = f.id
