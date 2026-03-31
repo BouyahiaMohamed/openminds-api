@@ -249,8 +249,12 @@ app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
         Adresse,         // 6
         imageFinale      // 7
     ];
-    db.execute(queryForm, [Titre, Description, isOnlineInt, userId, Adresse, imageFinale], (err, result) => {
-        if (err) return res.status(500).json({ error: err.sqlMessage });
+    db.execute(queryForm, paramsForm, (err, result) => { // <-- On passe paramsForm ici !
+        if (err) {
+            console.error("❌ ERREUR SQL FORMATION :", err.sqlMessage);
+            // On renvoie du JSON même en cas d'erreur pour éviter le crash du JSON.parse côté mobile
+            return res.status(500).json({ error: err.sqlMessage });
+        }
 
         const formationId = result.insertId;
 
@@ -261,12 +265,12 @@ app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
             db.execute(querySess, [formationId, DateHeure, places, places, Adresse || 'En ligne']);
         }
 
-        // 3. Création automatique d'un Badge (obligatoire pour que le succès du quiz fonctionne)
+        // 3. Création automatique d'un Badge
         const queryBadge = `INSERT INTO Badges (nomBadge, URLImage, Id_Formation) VALUES (?, ?, ?)`;
         db.execute(queryBadge, [`Badge ${Titre}`, '/badges/random.png', formationId]);
 
-        // 4. Insertion du Quiz (Questions et Réponses)
-        if (quizData.length > 0) {
+        // 4. Insertion du Quiz
+        if (quizData && quizData.length > 0) {
             quizData.forEach(q => {
                 const queryQ = `INSERT INTO Question (textQuestion, Id_Formation) VALUES (?, ?)`;
                 db.execute(queryQ, [q.text, formationId], (errQ, resQ) => {
@@ -281,9 +285,9 @@ app.post('/formations', verifyToken, upload.single('image'), (req, res) => {
             });
         }
 
+        // ✅ On répond en JSON à la toute fin
         res.status(201).json({ message: "Formation et Quiz créés !", id: formationId });
     });
-});
 
 app.get('/likes', verifyToken, (req, res) => {
     const userId = req.id; 
