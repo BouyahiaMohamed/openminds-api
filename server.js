@@ -216,39 +216,43 @@ app.get('/formations', verifyToken, (req, res) => {
 app.post('/formations', verifyToken, upload.single('image'), async (req, res) => {
     const { Titre, Description, isOnline, Adresse, DateHeure, nbPlacesRestantes, generatedImage } = req.body;
     
-    let imageFinale = req.file ? `/uploads/formations/${req.file.filename}` : (generatedImage !== 'null' ? generatedImage : `https://picsum.photos/seed/${Date.now()}/300/300`);
+    let imageFinale = req.file 
+        ? `/uploads/formations/${req.file.filename}` 
+        : (generatedImage && generatedImage !== 'null' ? generatedImage : `https://picsum.photos/seed/${Date.now()}/300/300`);
 
     try {
         const isOnlineInt = (isOnline === '1' || isOnline === 'true') ? 1 : 0;
 
-        // 1. Insertion de la formation
-        const queryForm = `INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) VALUES (?, ?, ?, ?, 'en_attente', ?, ?)`;
+        // Requête ultra-simple : on insère uniquement ce qui existe en table Formation
+        const queryForm = `
+            INSERT INTO Formation (Titre, Description, isOnline, Adresse, statut, Id_User, Image) 
+            VALUES (?, ?, ?, ?, 'en_attente', ?, ?)
+        `;
         
         db.execute(queryForm, [Titre, Description, isOnlineInt, Adresse, req.id, imageFinale], (err, result) => {
-            if (err) return res.status(500).json({ error: err.sqlMessage });
+            if (err) {
+                console.error("Erreur SQL Formation:", err.sqlMessage);
+                return res.status(500).json({ error: err.sqlMessage });
+            }
 
             const formationId = result.insertId;
 
-            // 2. Création de la Session
-            if (DateHeure && DateHeure !== 'null') {
-                const querySess = `INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)`;
-                
-                db.execute(querySess, [formationId, DateHeure, nbPlacesRestantes, nbPlacesRestantes, Adresse], (errSess, resSess) => {
-                    if (errSess) return;
-
-                    const sessionId = resSess.insertId;
-
-                    // 3. LIAISON FORMATEUR (C'est ici que ça se joue !)
-                    // On lie l'utilisateur actuel (req.id) à cette session/formation
-                    const queryLink = `INSERT INTO APourFormateur (id_User, id_Session) VALUES (?, ?)`;
-                    db.execute(queryLink, [req.id, sessionId], (errLink) => {
-                        if (errLink) console.error("Erreur liaison formateur:", errLink);
-                    });
+            // On crée la session si besoin
+            if (DateHeure && DateHeure !== 'null' && DateHeure !== '') {
+                const querySess = `
+                    INSERT INTO Session (Id_Formation, DateHeure, Duree, nbPlaces, nbPlacesRestantes, Statut, Adresse) 
+                    VALUES (?, ?, '01:30:00', ?, ?, 'À Venir', ?)
+                `;
+                db.execute(querySess, [formationId, DateHeure, nbPlacesRestantes, nbPlacesRestantes, Adresse], (errS) => {
+                    if (errS) console.error("Erreur Session ignoree:", errS.sqlMessage);
                 });
             }
-            res.status(201).json({ message: "Succès !" });
+
+            res.status(201).json({ message: "Formation proposée avec succès !" });
         });
-    } catch (error) { res.status(500).json({ error: "Erreur serveur" }); }
+    } catch (error) {
+        res.status(500).json({ error: "Erreur serveur" });
+    }
 });
 
 app.get('/likes', verifyToken, (req, res) => {
