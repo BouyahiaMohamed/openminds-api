@@ -916,6 +916,86 @@ app.put('/api/users/update', verifyToken, async (req, res) => {
         res.status(500).json({ error: "Erreur interne serveur." });
     }
 });
+
+// ==========================================
+// ROUTE : RÉCUPÉRER LE QUIZ D'UNE FORMATION
+// ==========================================
+app.get('/formations/:id/quiz', verifyToken, (req, res) => {
+    const formationId = req.params.id;
+
+    // Requête SQL pour récupérer questions ET réponses d'un coup
+    const query = `
+        SELECT 
+            q.id AS questionId, 
+            q.textQuestion, 
+            r.id AS reponseId, 
+            r.textReponse, 
+            r.isCorrect
+        FROM Question q
+        JOIN Reponse r ON q.id = r.Id_Question
+        WHERE q.Id_Formation = ?
+    `;
+
+    db.execute(query, [formationId], (err, results) => {
+        if (err) {
+            console.error("❌ Erreur SQL Quiz :", err);
+            return res.status(500).json({ error: "Erreur lors de la récupération du quiz." });
+        }
+
+        if (results.length === 0) {
+            return res.status(404).json({ error: "Aucun quiz trouvé pour cette formation." });
+        }
+
+        // On transforme les résultats "plats" en une structure imbriquée (questions -> réponses)
+        const quiz = results.reduce((acc, row) => {
+            // On cherche si la question est déjà dans l'accumulateur
+            let question = acc.find(q => q.id === row.questionId);
+
+            if (!question) {
+                question = {
+                    id: row.questionId,
+                    text: row.textQuestion,
+                    reponses: []
+                };
+                acc.push(question);
+            }
+
+            // On ajoute la réponse à la question correspondante
+            question.reponses.push({
+                id: row.reponseId,
+                text: row.textReponse,
+                isCorrect: row.isCorrect // On l'envoie pour calculer le score côté client
+            });
+
+            return acc;
+        }, []);
+
+        res.status(200).json(quiz);
+    });
+});
+
+// ==========================================
+// ROUTE : ENREGISTRER LE RÉSULTAT DU QUIZ
+// ==========================================
+app.post('/formations/:id/quiz/submit', verifyToken, (req, res) => {
+    const userId = req.id;
+    const formationId = req.params.id;
+    const { score, isSuccess } = req.body;
+
+    const query = `
+        INSERT INTO FaitLeQuiz (Id_User, Id_Formation, Score, IsSuccess, DatePassage)
+        VALUES (?, ?, ?, ?, NOW())
+    `;
+
+    db.execute(query, [userId, formationId, score, isSuccess], (err, result) => {
+        if (err) {
+            console.error("❌ Erreur SQL Submit Quiz :", err);
+            return res.status(500).json({ error: "Erreur lors de l'enregistrement du score." });
+        }
+        res.status(201).json({ message: "Résultat enregistré !" });
+    });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`API en cours d'exécution sur le port ${PORT}`);
