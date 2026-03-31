@@ -1061,6 +1061,29 @@ app.post('/api/generate-image', async (req, res) => {
     }
 });
 
+// ============================================================
+// ROUTE : ENREGISTRER LE BADGE DANS LA TABLE 'Possede' (POST)
+// ============================================================
+app.post('/my-badges/claim', verifyToken, (req, res) => {
+    const userId = req.id; // Récupéré par verifyToken
+    const { badgeId } = req.body; // Envoyé par SuccessScreen
+
+    if (!badgeId) {
+        return res.status(400).json({ error: "ID du badge manquant" });
+    }
+
+    const query = `
+        INSERT IGNORE INTO Possede (Id_User, Id_Badges, DateObtention) 
+        VALUES (?, ?, NOW())
+    `;
+
+    db.execute(query, [userId, badgeId], (err, result) => {
+        if (err) {
+            return res.status(500).json({ error: "Erreur lors de l'enregistrement du badge" });
+        }
+        res.status(201).json({ message: "Badge obtenu avec succès !" });
+    });
+});
 
 
 const PORT = 3000;
