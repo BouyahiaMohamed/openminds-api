@@ -867,6 +867,55 @@ app.get('/formations/:id/badge', verifyToken, (req, res) => {
         res.status(200).json(results[0]);
     });
 });
+
+
+// ==========================================
+// ROUTE : METTRE À JOUR LE PROFIL (PSEUDO, EMAIL, MDP)
+// ==========================================
+app.put('/api/users/update', verifyToken, async (req, res) => {
+    const id_user = req.id;
+    const { userName, email, password } = req.body;
+
+    if (!userName && !email && !password) {
+        return res.status(400).json({ error: "Aucune donnée à mettre à jour." });
+    }
+
+    try {
+        let query = "UPDATE users SET ";
+        let params = [];
+        let updates = [];
+
+        if (userName) {
+            updates.push("userName = ?");
+            params.push(userName);
+        }
+        if (email) {
+            updates.push("email = ?");
+            params.push(email);
+        }
+        if (password) {
+            // 🔒 C'est CA qui permet de changer le mot de passe ! On le crypte avant de le sauver.
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updates.push("password = ?");
+            params.push(hashedPassword);
+        }
+
+        query += updates.join(", ") + " WHERE id = ?";
+        params.push(id_user);
+
+        db.execute(query, params, (err, results) => {
+            if (err) {
+                console.error("❌ Erreur SQL Update Profil:", err);
+                return res.status(500).json({ error: "Erreur lors de la mise à jour SQL." });
+            }
+            console.log(`✅ Mot de passe mis à jour pour l'utilisateur ID: ${id_user}`);
+            res.status(200).json({ message: "Mise à jour réussie !" });
+        });
+    } catch (error) {
+        console.error("Erreur de cryptage:", error);
+        res.status(500).json({ error: "Erreur interne serveur." });
+    }
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`API en cours d'exécution sur le port ${PORT}`);
