@@ -636,27 +636,35 @@ app.get('/admin/formations/pending', verifyToken, (req, res) => {
 });
 
 app.put('/admin/formations/:id/accept', verifyToken, (req, res) => {
-    const userId = req.id;
+    console.log("=== DÉBUT DE LA VALIDATION ===");
+    console.log("1. ID de la formation à valider :", req.params.id);
+    console.log("2. ID de l'utilisateur (issu du token) :", req.id); 
 
-    db.execute("SELECT isAdmin FROM users WHERE id = ?", [userId], (err, users) => {
+    if (!req.id) {
+        console.error("💥 ERREUR FATALE : req.id est vide ! Le middleware verifyToken ne marche pas bien.");
+        return res.status(500).json({ error: "Token invalide." });
+    }
+
+    db.execute("SELECT isAdmin FROM users WHERE id = ?", [req.id], (err, users) => {
         if (err) {
-            console.error("Erreur vérification admin :", err);
+            console.error("💥 ERREUR SQL (Recherche User) :", err.sqlMessage || err);
             return res.status(500).json({ error: "Erreur serveur." });
         }
         
-        // On vérifie si l'utilisateur existe ET si son isAdmin est égal à 1
+        console.log("3. Résultat de la recherche admin :", users);
+
         if (users.length === 0 || users[0].isAdmin !== 1) {
+            console.error("❌ BLOCAGE : L'utilisateur n'est pas admin !");
             return res.status(403).json({ error: "Accès refusé. Réservé aux administrateurs." });
         }
 
-        const formationId = req.params.id;
         const query = "UPDATE Formation SET statut = 'validee' WHERE id = ?";
-        
-        db.execute(query, [formationId], (err, results) => {
+        db.execute(query, [req.params.id], (err, results) => {
             if (err) {
-                console.error("Erreur SQL validation :", err);
+                console.error("💥 ERREUR SQL (Mise à jour Formation) :", err.sqlMessage || err);
                 return res.status(500).json({ error: "Erreur lors de la validation." });
             }
+            console.log("✅ SUCCÈS : Formation mise à jour en BDD !");
             res.status(200).json({ message: "Formation validée et publiée au catalogue !" });
         });
     });
